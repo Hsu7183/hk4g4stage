@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>交易數據分析 - 每日獲利盈餘</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .statistics {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+        .statistics-section {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .statistics-item {
+            margin: 0 10px;
+        }
+        .parameters {
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .table-container {
+            overflow-x: auto;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+            border: 1px solid #ddd;
+        }
+        th {
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>交易數據分析 - 每日獲利盈餘</h2>
+            <button class="btn btn-primary" onclick="pasteClipboardContent()">貼上剪貼簿內容</button>
+        </div>
+
+        <div class="parameters" id="parameters">參數: </div>
+
+        <div class="statistics">
+            <!-- 第2行數據 -->
+            <div class="statistics-section">
+                <span class="statistics-item">總交易筆數: <span id="totalTrades">0</span></span>
+                <span class="statistics-item">賺錢交易筆數: <span id="winningTrades">0</span></span>
+                <span class="statistics-item">賠錢交易筆數: <span id="losingTrades">0</span></span>
+                <span class="statistics-item">總獲利: <span id="totalProfit">0</span></span>
+                <span class="statistics-item">每筆滑點1點總獲利: <span id="slippageAdjustedProfit">0</span></span>
+                <span class="statistics-item">總勝率: <span id="overallWinRate">0%</span></span>
+                <span class="statistics-item">總敗率: <span id="overallLossRate">0%</span></span>
+                <span class="statistics-item">單日累計最大獲利: <span id="overallMaxDailyProfit">0</span></span>
+                <span class="statistics-item">單日累計最大虧損: <span id="overallMaxDailyLoss">0</span></span>
+            </div>
+
+            <!-- 第3行數據 -->
+            <div class="statistics-section">
+                <span class="statistics-item">多單筆數: <span id="longTrades">0</span></span>
+                <span class="statistics-item">多單獲利: <span id="longProfit">0</span></span>
+                <span class="statistics-item">多單勝率: <span id="longWinRate">0%</span></span>
+                <span class="statistics-item">多單敗率: <span id="longLossRate">0%</span></span>
+                <span class="statistics-item">空單筆數: <span id="shortTrades">0</span></span>
+                <span class="statistics-item">空單獲利: <span id="shortProfit">0</span></span>
+                <span class="statistics-item">空單勝率: <span id="shortWinRate">0%</span></span>
+                <span class="statistics-item">空單敗率: <span id="shortLossRate">0%</span></span>
+            </div>
+        </div>
+
+        <canvas id="chart"></canvas>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>時間</th>
+                        <th>價格</th>
+                        <th>類型</th>
+                        <th>點數</th>
+                        <th>做多</th>
+                        <th>做空</th>
+                        <th>獲利</th>
+                        <th>每日獲利</th>
+                        <th>累積獲利</th>
+                    </tr>
+                </thead>
+                <tbody id="dailyStats">
+                    <!-- 交易紀錄將顯示在這裡 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function pasteClipboardContent() {
+            navigator.clipboard.readText().then(text => {
+                const lines = text.trim().split('\n');
+                let parameters = [];
+                const tradeLines = [];
+
+                // 分離參數行和交易行
+                lines.forEach(line => {
+                    if (line.includes("參數")) {
+                        parameters.push(line.match(/[\d.]+/g).map(v => parseFloat(v).toFixed(0)).join(' ')); // 去除 .000000
+                    } else if (line.trim() !== "") {
+                        tradeLines.push(line);
+                    }
+                });
+
+                // 更新參數顯示
+                document.getElementById('parameters').innerText = "參數: " + parameters.join(', ');
+
+                const dailyProfits = {};
+                let lastTradeType = null;
+                let lastTradePrice = null;
+                let cumulativeProfit = 0;
+                let longCumulativeProfit = 0;
+                let shortCumulativeProfit = 0;
+                let overallMaxDailyProfit = -Infinity;
+                let overallMaxDailyLoss = Infinity;
+
+                let totalTrades = 0;
+                let longTrades = 0;
+                let shortTrades = 0;
+                let longProfit = 0;
+                let shortProfit = 0;
+                let winningTrades = 0;
+                let losingTrades = 0;
+
+                let longWinTrades = 0;
+                let longLossTrades = 0;
+                let shortWinTrades = 0;
+                let shortLossTrades = 0;
+                let totalProfit = 0;
+                let slippageAdjustedProfit = 0;
+                let dailyProfitSum = 0;
+                let lastDate = null;
+
+                let dailyNetProfits = [];
+                const labels = [];
+                const balances = [];
+                const longBalances = [];
+                const shortBalances = [];
+                const slippageBalances = [];
+
+                function calculateProfit(points) {
+                    return Math.round(points * 200 - 90 - Math.round((200 * points * 2 / 100000)) * 2);
+                }
+
+                const dailyStatsElement = document.getElementById('dailyStats');
+                dailyStatsElement.innerHTML = '';
+
+                tradeLines.forEach((line, index) => {
+                    const parts = line.split(/\s+/);
+                    if (parts.length < 3) return;
+
+                    const dateTime = parts[0].split('.')[0]; // 移除 .000000
+                    const price = parseFloat(parts[1]).toFixed(2).split('.')[0]; // 移除 .00
+                    const type = parts[2];
+                    const date = dateTime.substring(0, 8);
+
+                    let points = 0;
+                    let profit = 0;
+                    let isLongTrade = false;
+                    let isShortTrade = false;
+
+                    if (lastTradeType && lastTradePrice !== null) {
+                        if (lastTradeType === "新買" && (type === "平賣" || type === "強制平倉")) {
+                            points = price - lastTradePrice;
+                            profit = calculateProfit(points);
+                            longTrades++;
+                            longProfit += profit;
+                            longCumulativeProfit += profit;
+                            if (profit > 0) {
+                                longWinTrades++;
+                                winningTrades++;
+                            } else {
+                                longLossTrades++;
+                                losingTrades++;
+                            }
+                            isLongTrade = true;
+                        } else if (lastTradeType === "新賣" && (type === "平買" || type === "強制平倉")) {
+                            points = lastTradePrice - price;
+                            profit = calculateProfit(points);
+                            shortTrades++;
+                            shortProfit += profit;
+                            shortCumulativeProfit += profit;
+                            if (profit > 0) {
+                                shortWinTrades++;
+                                winningTrades++;
+                            } else {
+                                shortLossTrades++;
+                                losingTrades++;
+                            }
+                            isShortTrade = true;
+                        }
+                        totalTrades++;
+                        totalProfit += profit;
+                        cumulativeProfit += profit;
+                        dailyProfitSum += profit;
+                    }
+
+                    // 檢查是否為新的一天，若是，則重置每日獲利並顯示於上一筆
+                    if (lastDate && lastDate !== date) {
+                        const lastRow = dailyStatsElement.lastElementChild;
+                        if (lastRow) {
+                            lastRow.children[7].textContent = dailyProfitSum; // 更新每日獲利欄
+                        }
+                        dailyProfitSum = 0;
+                    }
+                    lastDate = date;
+
+                    // 計算滑點1點的調整後總獲利
+                    slippageAdjustedProfit = totalProfit - totalTrades * 200;
+
+                    // 添加數據到表格
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${dateTime}</td>
+                        <td>${price}</td>
+                        <td>${type}</td>
+                        <td>${points !== 0 ? points.toFixed(0) : ''}</td>
+                        <td>${isLongTrade ? points.toFixed(0) : ''}</td>
+                        <td>${isShortTrade ? points.toFixed(0) : ''}</td>
+                        <td>${profit}</td>
+                        <td></td> <!-- 每日獲利，稍後更新 -->
+                        <td>${cumulativeProfit}</td>
+                    `;
+                    dailyStatsElement.appendChild(row);
+
+                    lastTradeType = type;
+                    lastTradePrice = parseFloat(price);
+
+                    // 添加累積金額數據
+                    labels.push(date);
+                    balances.push(cumulativeProfit);
+                    longBalances.push(longCumulativeProfit);
+                    shortBalances.push(shortCumulativeProfit);
+                    slippageBalances.push(slippageAdjustedProfit);
+
+                    if (!dailyProfits[date]) {
+                        dailyProfits[date] = { dailyProfit: 0, dailyNetProfit: 0 };
+                    }
+                    dailyProfits[date].dailyNetProfit += profit;
+                    dailyProfits[date].dailyProfit = cumulativeProfit;
+
+                    // 若為最後一筆數據，顯示當日的每日獲利
+                    if (index === tradeLines.length - 1) {
+                        const lastRow = dailyStatsElement.lastElementChild;
+                        if (lastRow) {
+                            lastRow.children[7].textContent = dailyProfitSum;
+                        }
+                    }
+                });
+
+                // 顯示最後一筆交易日的每日獲利
+                const lastRow = dailyStatsElement.lastElementChild;
+                if (lastRow) {
+                    lastRow.children[7].textContent = dailyProfitSum;
+                }
+
+                // 修正總交易筆數為一進一出算一筆
+                totalTrades = Math.floor(totalTrades / 2);
+
+                // 計算勝率與敗率
+                const overallWinRate = ((winningTrades / totalTrades) * 100).toFixed(2);
+                const overallLossRate = ((losingTrades / totalTrades) * 100).toFixed(2);
+                const longWinRate = ((longWinTrades / longTrades) * 100).toFixed(2);
+                const longLossRate = ((longLossTrades / longTrades) * 100).toFixed(2);
+                const shortWinRate = ((shortWinTrades / shortTrades) * 100).toFixed(2);
+                const shortLossRate = ((shortLossTrades / shortTrades) * 100).toFixed(2);
+
+                // 計算單日累計最大獲利與虧損
+                Object.values(dailyProfits).forEach(daily => {
+                    dailyNetProfits.push(daily.dailyNetProfit);
+                });
+
+                overallMaxDailyProfit = Math.max(...dailyNetProfits);
+                overallMaxDailyLoss = Math.min(...dailyNetProfits);
+
+                // 更新 HTML
+                document.getElementById('totalTrades').innerText = totalTrades;
+                document.getElementById('totalProfit').innerText = totalProfit;
+                document.getElementById('slippageAdjustedProfit').innerText = slippageAdjustedProfit;
+                document.getElementById('winningTrades').innerText = winningTrades;
+                document.getElementById('losingTrades').innerText = losingTrades;
+                document.getElementById('overallWinRate').innerText = isNaN(overallWinRate) ? "0%" : overallWinRate + "%";
+                document.getElementById('overallLossRate').innerText = isNaN(overallLossRate) ? "0%" : overallLossRate + "%";
+                document.getElementById('overallMaxDailyProfit').innerText = overallMaxDailyProfit;
+                document.getElementById('overallMaxDailyLoss').innerText = overallMaxDailyLoss;
+                document.getElementById('longTrades').innerText = longTrades;
+                document.getElementById('longProfit').innerText = longProfit;
+                document.getElementById('longWinRate').innerText = isNaN(longWinRate) ? "0%" : longWinRate + "%";
+                document.getElementById('longLossRate').innerText = isNaN(longLossRate) ? "0%" : longLossRate + "%";
+                document.getElementById('shortTrades').innerText = shortTrades;
+                document.getElementById('shortProfit').innerText = shortProfit;
+                document.getElementById('shortWinRate').innerText = isNaN(shortWinRate) ? "0%" : shortWinRate + "%";
+                document.getElementById('shortLossRate').innerText = isNaN(shortLossRate) ? "0%" : shortLossRate + "%";
+
+                // 繪製圖表
+                const ctx = document.getElementById('chart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: '每日累積結餘',
+                                data: balances,
+                                borderColor: 'yellow',
+                                backgroundColor: 'rgba(255, 255, 0, 0.1)',
+                                fill: true
+                            },
+                            {
+                                label: '多單累積金額',
+                                data: longBalances,
+                                borderColor: 'red',
+                                fill: false
+                            },
+                            {
+                                label: '空單累積金額',
+                                data: shortBalances,
+                                borderColor: 'green',
+                                fill: false
+                            },
+                            {
+                                label: '滑點1點總獲利',
+                                data: slippageBalances,
+                                borderColor: 'blue',
+                                fill: false
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: '日期'
+                                },
+                                grid: {
+                                    drawOnChartArea: false
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: '累積金額'
+                                },
+                                beginAtZero: false
+                            }
+                        }
+                    }
+                });
+            }).catch(err => {
+                alert('讀取剪貼簿內容失敗，請檢查瀏覽器設置並允許剪貼簿訪問。');
+                console.error('讀取剪貼簿錯誤: ', err);
+            });
+        }
+    </script>
+</body>
+</html>
