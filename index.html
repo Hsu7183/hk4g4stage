@@ -3,8 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
+
   <link rel="stylesheet" href="style.css" />
+  <!-- Chart.js & time-adapter -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 </head>
 
 <body>
@@ -31,8 +34,8 @@
     <thead>
       <tr>
         <th>筆數</th><th>時間</th><th>價格</th><th>類型</th><th>點數</th>
-        <th>手續費</th><th>期交稅</th><th>獲利</th><th>累積獲利</th>
-        <th>滑價獲利</th><th>累積滑價獲利</th>
+        <th>手續費</th><th>期交稅</th><th>獲利</th>
+        <th>累積獲利</th><th>滑價獲利</th><th>累積滑價獲利</th>
       </tr>
     </thead>
     <tbody></tbody>
