@@ -22,10 +22,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 
-/* ========= 主解析 ========= */
+/* ========= 主流程 ========= */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/);
-  const queue=[], rec=[], equity=[];
+  const queue=[], trades=[], equity=[];
   let cum=0,cumL=0,cumS=0,cumSlip=0;
 
   rows.forEach(line=>{
@@ -33,16 +33,18 @@ function analyse(raw){
     if(!act) return;
     const price=+parseFloat(pS);
 
-    if(ENTRY.includes(act)){                       // 建倉
-      queue.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts});
+    /* -------- 進場 -------- */
+    if(ENTRY.includes(act)){
+      queue.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts,typeIn:act});
       return;
     }
 
+    /* -------- 出場 -------- */
     const idx=queue.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));
     if(idx===-1) return;
     const pos=queue.splice(idx,1)[0];
 
-    const pts = pos.side==='L'? price-pos.pIn : pos.pIn-price;
+    const pts = pos.side==='L' ? price-pos.pIn : pos.pIn-price;
     const fee = FEE_SIDE*2;
     const tax = Math.round(price*MULT*TAX_RATE);
     const gain= pts*MULT - fee - tax;
@@ -52,57 +54,75 @@ function analyse(raw){
     cum     += gain;
     cumSlip += gainSlip;
 
-    rec.push({
-      ts : ts.slice(0,12),
-      price,
-      type:act,
-      pts,
-      fee,
-      tax,
-      gain,
-      gainSlip,
-      longP :pos.side==='L'? gain :'',
-      cumL,
-      shortP:pos.side==='S'? gain :'',
-      cumS,
-      cumSlip
+    /* 進場、出場組成一筆 trade */
+    trades.push({
+      in :{
+        ts  :pos.tsIn.slice(0,12),
+        price:pos.pIn,
+        type :pos.typeIn
+      },
+      out:{
+        ts  :ts.slice(0,12),
+        price,
+        type:act,
+        pts,fee,tax,gain,gainSlip,
+        longP :pos.side==='L'?gain:'',
+        cumL,
+        shortP:pos.side==='S'?gain:'',
+        cumS,
+        cumSlip
+      }
     });
+
     equity.push(cum);
   });
 
-  if(!rec.length){alert('沒有成功配對的交易！');return;}
+  if(!trades.length){alert('沒有成功配對的交易！');return;}
 
-  renderTable(rec);
+  renderTable(trades);
   drawChart(equity);
 }
 
-/* ========= 表格輸出 ========= */
-function renderTable(arr){
+/* ========= 表格 ========= */
+function renderTable(trades){
   const tbody=document.querySelector('#tbl tbody');
   tbody.innerHTML='';
-  arr.forEach((d,idx)=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`
-      <td>${idx+1}</td>
-      <td>${d.ts}</td>
-      <td>${d.price}</td>
-      <td>${d.type}</td>
-      <td>${fmt(d.pts)}</td>
-      <td>${fmt(d.fee)}</td>
-      <td>${fmt(d.tax)}</td>
-      <td>${fmt(d.gain)}</td>
-      <td>${fmt(d.gainSlip)}</td>
-      <td>${fmt(d.longP)}</td>
-      <td>${fmt(d.cumL)}</td>
-      <td>${fmt(d.shortP)}</td>
-      <td>${fmt(d.cumS)}</td>
-      <td>${fmt(d.cumSlip)}</td>`;
-    tbody.appendChild(tr);
+
+  trades.forEach((t,i)=>{
+    /* 進場列 */
+    const trIn=document.createElement('tr');
+    trIn.innerHTML=`
+      <td rowspan="2">${i+1}</td>
+      <td>${t.in.ts}</td>
+      <td>${t.in.price}</td>
+      <td>${t.in.type}</td>
+      <td></td><td></td><td></td><td></td><td></td>
+      <td></td><td></td><td></td><td></td><td></td>`;
+    tbody.appendChild(trIn);
+
+    /* 出場列 */
+    const trOut=document.createElement('tr');
+    trOut.innerHTML=`
+      <td>${t.out.ts}</td>
+      <td>${t.out.price}</td>
+      <td>${t.out.type}</td>
+      <td>${fmt(t.out.pts)}</td>
+      <td>${fmt(t.out.fee)}</td>
+      <td>${fmt(t.out.tax)}</td>
+      <td>${fmt(t.out.gain)}</td>
+      <td>${fmt(t.out.gainSlip)}</td>
+      <td>${fmt(t.out.longP)}</td>
+      <td>${fmt(t.out.cumL)}</td>
+      <td>${fmt(t.out.shortP)}</td>
+      <td>${fmt(t.out.cumS)}</td>
+      <td>${fmt(t.out.cumSlip)}</td>`;
+    tbody.appendChild(trOut);
   });
+
   document.getElementById('tbl').hidden=false;
 }
 
-/* ========= 折線圖 ========= */
+/* ========= Chart ========= */
 let chart;
 function drawChart(eq){
   if(chart) chart.destroy();
