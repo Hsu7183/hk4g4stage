@@ -9,15 +9,14 @@ const ENTRY=['新買','新賣'];
 const EXIT_L=['平賣','強制平倉'];
 const EXIT_S=['平買','強制平倉'];
 
-/* ========= 進入點 ========= */
+/* ========= 入口 ========= */
 document.addEventListener('DOMContentLoaded',()=>{
-  /* 貼剪貼簿 */
+  /* 剪貼簿 */
   document.getElementById('btn-clip').addEventListener('click',async e=>{
     try{analyse(await navigator.clipboard.readText());flash(e.target);}
     catch(err){alert('無法讀取剪貼簿：'+err.message);}
   });
-
-  /* 上傳檔案 */
+  /* 檔案 */
   document.getElementById('fileInput').addEventListener('change',e=>{
     const f=e.target.files[0]; if(!f)return;
     const rd=new FileReader();
@@ -26,11 +25,11 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 
-/* ========= 主要分析 ========= */
+/* ========= 主流程 ========= */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/);
   const queue=[], trades=[], equity=[];
-  let cum=0,cumL=0,cumS=0,cumSlip=0;
+  let cum=0,cumSlip=0;
 
   rows.forEach(line=>{
     const [ts,pS,act]=line.trim().split(/\s+/);
@@ -48,21 +47,18 @@ function analyse(raw){
     if(i===-1) return;
     const pos=queue.splice(i,1)[0];
 
-    const pts = pos.side==='L'? price-pos.pIn : pos.pIn-price;
-    const fee = FEE_SIDE*2;
-    const tax = Math.round(price*MULT*TAX_RATE);
+    const pts= pos.side==='L'? price-pos.pIn : pos.pIn-price;
+    const fee= FEE_SIDE*2;
+    const tax= Math.round(price*MULT*TAX_RATE);
     const gain= pts*MULT - fee - tax;
-    const gainSlip = gain - SLIP_PT*MULT;
+    const gainSlip= gain - SLIP_PT*MULT;
 
-    if(pos.side==='L') cumL+=gain; else cumS+=gain;
     cum     += gain;
     cumSlip += gainSlip;
 
     trades.push({
       in :{ts:pos.tsIn.slice(0,12),price:pos.pIn,type:pos.typeIn},
-      out:{ts:ts.slice(0,12),price,type:act,pts,fee,tax,gain,gainSlip,
-           longP:pos.side==='L'?gain:'',cumL,
-           shortP:pos.side==='S'?gain:'',cumS,cumSlip}
+      out:{ts:ts.slice(0,12),price,type:act,pts,fee,tax,gain,cum,gainSlip,cumSlip}
     });
     equity.push(cum);
   });
@@ -73,7 +69,7 @@ function analyse(raw){
   drawChart(equity);
 }
 
-/* ========= 表格渲染 ========= */
+/* ========= 表格 ========= */
 function renderTable(trades){
   const tbody=document.querySelector('#tbl tbody');
   tbody.innerHTML='';
@@ -86,8 +82,7 @@ function renderTable(trades){
       <td>${t.in.ts}</td>
       <td>${t.in.price}</td>
       <td>${t.in.type}</td>
-      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
-      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`;
+      <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>`;
     tbody.appendChild(trIn);
 
     /* 出場列 */
@@ -100,11 +95,8 @@ function renderTable(trades){
       <td>${fmt(t.out.fee)}</td>
       <td>${fmt(t.out.tax)}</td>
       <td>${fmt(t.out.gain)}</td>
+      <td>${fmt(t.out.cum)}</td>
       <td>${fmt(t.out.gainSlip)}</td>
-      <td>${fmt(t.out.longP)}</td>
-      <td>${fmt(t.out.cumL)}</td>
-      <td>${fmt(t.out.shortP)}</td>
-      <td>${fmt(t.out.cumS)}</td>
       <td>${fmt(t.out.cumSlip)}</td>`;
     tbody.appendChild(trOut);
   });
@@ -112,14 +104,15 @@ function renderTable(trades){
   document.getElementById('tbl').hidden=false;
 }
 
-/* ========= 畫折線圖 ========= */
-let chart;
+/* ========= 折線圖 ========= */
+let chart=null;
 function drawChart(eq){
   if(chart) chart.destroy();
   chart=new Chart(document.getElementById('equityChart'),{
     type:'line',
     data:{labels:eq.map((_,i)=>i+1),datasets:[{
-      data:eq,borderWidth:2,pointRadius:0,borderColor:'#ff9800',
+      data:eq,
+      borderWidth:2,pointRadius:0,borderColor:'#ff9800',
       fill:{target:'origin',above:'rgba(255,152,0,.15)'}
     }]},
     options:{plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},
@@ -128,6 +121,6 @@ function drawChart(eq){
   });
 }
 
-/* ========= 工具 ========= */
+/* ========= 小工具 ========= */
 const fmt = v => (v===''||v===undefined)?'':(+v).toLocaleString('zh-TW');
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
