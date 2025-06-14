@@ -1,11 +1,33 @@
-body{font-family:system-ui,sans-serif;max-width:90rem;margin:2rem auto;padding:0 1rem}
-header{display:flex;align-items:center;gap:.8rem;margin-bottom:1.2rem}
-h1{flex:auto;margin:0;font-size:1.6rem}
-.btn,#btn-clip{background:#0d6efd;color:#fff;border:0;border-radius:.25rem;padding:.5rem 1rem;cursor:pointer}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:.6rem;margin-bottom:1.5rem}
-.card{background:#f8f9fa;padding:.8rem;border-radius:.3rem;font-size:.9rem;line-height:1.45}
-.card h3{margin:.2rem 0 .4rem;font-size:1rem}
-table{width:100%;border-collapse:collapse;margin-top:1rem}
-th,td{border:1px solid #d0d0d0;padding:.4rem;text-align:center;font-size:.85rem}
-th{background:#f1f1f1}
-@media(max-width:600px){th,td{font-size:.7rem}}
+/* —— 版面骨架 —— */
+:root{
+  --bg:#f3f4f6;
+  --card:#ffffff;
+  --border:#e0e0e0;
+  --primary:#1976d2;
+  --primary-dark:#155ca8;
+}
+html,body{margin:0;padding:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#222;}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;padding:1.2rem 1rem 0;max-width:1200px;margin:auto;}
+h1{flex:1 1 240px;font-size:1.6rem;margin:0;}
+.btn-group{display:flex;gap:.6rem}
+
+/* —— 按鈕 —— */
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1.1rem;border:0;border-radius:.35rem;font-size:.88rem;cursor:pointer;user-select:none;transition:.18s;}
+.btn.primary{background:var(--primary);color:#fff;}
+.btn.primary:hover{background:var(--primary-dark);}
+
+/* —— 統計卡片 —— */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1rem;max-width:1200px;margin:1rem auto;}
+.card{background:var(--card);border:1px solid var(--border);border-radius:.5rem;padding:.9rem .9rem .7rem;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.card h3{margin:.1rem 0 .3rem;font-size:.9rem;font-weight:600;color:#444;}
+.card div{font-size:1.05rem;font-weight:700;color:#000;white-space:nowrap}
+
+/* —— 表格 —— */
+table{width:100%;max-width:1200px;margin:1.4rem auto;border-collapse:collapse;font-size:.85rem;background:var(--card);border:1px solid var(--border);}
+th,td{padding:.5rem .4rem;border-bottom:1px solid var(--border);text-align:center;}
+thead th{background:#fafafa;font-weight:600;}
+tbody tr:nth-child(even){background:#fafafa;}
+tbody tr:hover{background:#f1f5ff;}
+
+/* —— Chart 區塊 —— */
+canvas{display:block;max-width:1200px;margin:auto;background:var(--card);border:1px solid var(--border);border-radius:.5rem;padding:.6rem;}
