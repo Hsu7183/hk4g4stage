@@ -3,9 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
-
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
@@ -22,16 +21,18 @@
 
   <section id="statsGrid" class="grid"></section>
 
-  <!-- 圖表：寬 100%、高 400 -->
-  <canvas id="equityChart" style="max-width:1200px;height:400px"></canvas>
+  <!-- 圖表：寬 100%，高 400 -->
+  <div class="chart-wrap">
+    <canvas id="equityChart"></canvas>
+  </div>
 
   <h2 class="sub">交易紀錄</h2>
   <table id="tbl" hidden>
     <thead>
       <tr>
         <th>筆數</th><th>時間</th><th>價格</th><th>類型</th><th>點數</th>
-        <th>手續費</th><th>期交稅</th><th>獲利</th>
-        <th>累積獲利</th><th>滑價獲利</th><th>累積滑價獲利</th>
+        <th>手續費</th><th>期交稅</th><th>獲利</th><th>累積獲利</th>
+        <th>滑價獲利</th><th>累積滑價獲利</th>
       </tr>
     </thead>
     <tbody></tbody>
