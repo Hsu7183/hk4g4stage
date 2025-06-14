@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
-
   <link rel="stylesheet" href="style.css" />
+  <!-- Chart.js & DataLabels -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
@@ -14,14 +14,19 @@
     <h1>交易剪貼簿分析</h1>
     <div class="btn-group">
       <button id="btn-clip" class="btn primary">貼上剪貼簿內容</button>
-      <label class="btn primary"> 選擇檔案
+      <label class="btn primary">
+        選擇檔案
         <input type="file" id="fileInput" accept=".txt,.TF" hidden />
       </label>
     </div>
   </header>
 
-  <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+  <!-- 圖表 -->
+  <div class="chart-wrap">
+    <canvas id="equityChart"></canvas>
+  </div>
 
+  <!-- 交易表 -->
   <h2 class="sub">交易紀錄</h2>
   <table id="tbl" hidden>
     <thead>
@@ -34,6 +39,7 @@
     <tbody></tbody>
   </table>
 
+  <!-- 主程式 -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
