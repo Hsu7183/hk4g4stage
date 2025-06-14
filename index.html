@@ -4,46 +4,49 @@
   <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
 
-  <!-- 樣式 -->
   <link rel="stylesheet" href="style.css" />
-  <!-- 圖表 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-  <!-- ── 頁首 ── -->
   <header>
     <h1>交易剪貼簿分析</h1>
 
     <div class="btn-group">
       <button id="btn-clip" class="btn primary">貼上剪貼簿內容</button>
-
-      <!-- 上傳檔案 -->
       <label class="btn primary">
         選擇檔案
-        <input type="file" id="fileInput" accept=".txt,.TF" hidden>
+        <input type="file" id="fileInput" accept=".txt,.TF" hidden />
       </label>
     </div>
   </header>
 
-  <!-- 統計卡片 -->
   <section id="statsGrid" class="grid"></section>
-
-  <!-- 盈虧折線圖 -->
   <canvas id="equityChart" height="320"></canvas>
 
-  <!-- 交易明細 -->
+  <h2 style="max-width:1200px;margin:1.6rem auto .6rem">交易紀錄</h2>
   <table id="tbl" hidden>
     <thead>
       <tr>
-        <th>建倉</th><th>平倉</th><th>多空</th><th>點數</th>
-        <th>盈虧(元)</th><th>持倉K</th>
+        <th>時間</th>
+        <th>價格</th>
+        <th>類型</th>
+        <th>代碼</th>
+        <th>點數</th>
+        <th>手續費</th>
+        <th>期交稅</th>
+        <th>獲利</th>
+        <th>滑價1.5</th>
+        <th>做多</th>
+        <th>累積獲利_多</th>
+        <th>做空</th>
+        <th>累積獲利_空</th>
+        <th>累積獲利_滑價</th>
       </tr>
     </thead>
     <tbody></tbody>
   </table>
 
-  <!-- 主程式 -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
