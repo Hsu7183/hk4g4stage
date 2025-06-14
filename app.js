@@ -26,10 +26,8 @@ function analyse(raw){
     const [ts,pS,act]=r.trim().split(/\s+/);if(!act)return;
     const price=+parseFloat(pS);
 
-    if(ENTRY.includes(act)){
-      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts,typeIn:act});
-      return;
-    }
+    if(ENTRY.includes(act)){q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts,typeIn:act});return;}
+
     const i=q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));if(i===-1)return;
     const pos=q.splice(i,1)[0];
 
@@ -43,11 +41,7 @@ function analyse(raw){
     tr.push({in:{ts:pos.tsIn.slice(0,12),price:pos.pIn,type:pos.typeIn},
              out:{ts:ts.slice(0,12),price,type:act,pts,fee,tax,gain,cum,gainSlip,cumSlip}});
 
-    tsArr.push(ts);
-    main   .push(cum);
-    longArr.push(cumL);
-    shortArr.push(cumS);
-    slipArr.push(cumSlip);
+    tsArr.push(ts);main.push(cum);longArr.push(cumL);shortArr.push(cumS);slipArr.push(cumSlip);
   });
 
   if(!tr.length){alert('沒有成功配對的交易！');return;}
@@ -58,9 +52,9 @@ function analyse(raw){
 
 /* ===== 表格 ===== */
 function renderTable(list){
-  const tbody=document.querySelector('#tbl tbody');tbody.innerHTML='';
+  const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
   list.forEach((t,i)=>{
-    tbody.insertAdjacentHTML('beforeend',`
+    tb.insertAdjacentHTML('beforeend',`
       <tr><td rowspan="2">${i+1}</td>
           <td>${t.in.ts}</td><td>${t.in.price}</td><td>${t.in.type}</td>
           <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
@@ -78,31 +72,29 @@ let chart;
 function drawChart(tsArr,main,longArr,shortArr,slipArr){
   if(chart)chart.destroy();
 
-  /* x 軸月份資料 */
-  const monthStr   = tsArr.map(s=>`${s.slice(0,4)}/${s.slice(4,6)}`);
-  const uniqMonths = [...new Set(monthStr)];
-  const step       = Math.ceil(uniqMonths.length/24);
+  const monthStr=tsArr.map(s=>`${s.slice(0,4)}/${s.slice(4,6)}`);
+  const uniqMonths=[...new Set(monthStr)];
+  const step=Math.ceil(uniqMonths.length/24);
 
-  /* 極值 & 最後索引 */
-  const maxVal = Math.max(...main), minVal = Math.min(...main);
-  const maxIdx = main.indexOf(maxVal), minIdx = main.indexOf(minVal);
-  const lastIdx = main.length-1;
+  const maxV=Math.max(...main),minV=Math.min(...main);
+  const maxI=main.indexOf(maxV),minI=main.indexOf(minV);
+  const lastIdx=main.length-1;
 
-  /* 月份條紋插件 */
+  /* 月條紋插件 */
   const stripePlugin={
-    id:'monthStripe',
+    id:'stripe',
     beforeDraw(chart){
       const {ctx,chartArea:{top,bottom}}=chart;
       const xScale=chart.scales.x;
       ctx.save();
-      uniqMonths.forEach((m,mi)=>{
-        if(mi%2===0){
-          const firstIdx=monthStr.indexOf(m);
-          const lastIdxMonth=monthStr.lastIndexOf(m);
-          const xStart=xScale.getPixelForValue(firstIdx);
-          const xEnd  =xScale.getPixelForValue(lastIdxMonth)+1;
+      uniqMonths.forEach((m,i)=>{
+        if(i%2===0){
+          const first=monthStr.indexOf(m);
+          const last =monthStr.lastIndexOf(m);
+          const xs=xScale.getPixelForValue(first);
+          const xe=xScale.getPixelForValue(last)+1;
           ctx.fillStyle='rgba(0,0,0,.04)';
-          ctx.fillRect(xStart,top,xEnd-xStart,bottom-top);
+          ctx.fillRect(xs,top,xe-xs,bottom-top);
         }
       });
       ctx.restore();
@@ -115,34 +107,35 @@ function drawChart(tsArr,main,longArr,shortArr,slipArr){
       labels:tsArr,
       datasets:[
         {label:'總累積',data:main,borderColor:'#fbc02d',borderWidth:2,pointRadius:0,
-         fill:{target:'origin',above:'rgba(255,138,128,.18)',below:'rgba(200,230,201,.18)'},
-         datalabels:{display:ctx=>ctx.dataIndex===lastIdx,align:'right',formatter:v=>fmt(v)}},
+         fill:{target:'origin',above:'rgba(255,138,128,.18)',below:'rgba(200,230,201,.18)'}},
 
-        {label:'多單累積',data:longArr,borderColor:'#d32f2f',borderWidth:1.4,pointRadius:0,fill:false,
-         datalabels:{display:ctx=>ctx.dataIndex===lastIdx,align:'right',formatter:v=>fmt(v)}},
+        {label:'多單累積',data:longArr,borderColor:'#d32f2f',borderWidth:1.4,pointRadius:0,fill:false},
+        {label:'空單累積',data:shortArr,borderColor:'#2e7d32',borderWidth:1.4,pointRadius:0,fill:false},
+        {label:'滑價累積',data:slipArr,borderColor:'#212121',borderWidth:1.4,pointRadius:0,fill:false},
 
-        {label:'空單累積',data:shortArr,borderColor:'#2e7d32',borderWidth:1.4,pointRadius:0,fill:false,
-         datalabels:{display:ctx=>ctx.dataIndex===lastIdx,align:'right',formatter:v=>fmt(v)}},
-
-        {label:'滑價累積',data:slipArr,borderColor:'#212121',borderWidth:1.4,pointRadius:0,fill:false,
-         datalabels:{display:ctx=>ctx.dataIndex===lastIdx,align:'right',formatter:v=>fmt(v)}},
-
-        {label:'Max',data:main.map((v,i)=>i===maxIdx?v:null),pointRadius:6,pointBackgroundColor:'#d32f2f',
-         borderWidth:0,showLine:false,datalabels:{display:true,align:'top',formatter:v=>fmt(v)}},
-
-        {label:'Min',data:main.map((v,i)=>i===minIdx?v:null),pointRadius:6,pointBackgroundColor:'#2e7d32',
-         borderWidth:0,showLine:false,datalabels:{display:true,align:'bottom',formatter:v=>fmt(v)}}
+        {label:'Max',data:main.map((v,i)=>i===maxI?v:null),pointRadius:6,pointBackgroundColor:'#d32f2f',
+         borderWidth:0,showLine:false},
+        {label:'Min',data:main.map((v,i)=>i===minI?v:null),pointRadius:6,pointBackgroundColor:'#2e7d32',
+         borderWidth:0,showLine:false}
       ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}
+        tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}},
+        /* ★ 全域顯示規則 */
+        datalabels:{
+          color:'#000',font:{size:10},align:'right',
+          display:ctx=>{
+            const i=ctx.dataIndex, lbl=ctx.dataset.label;
+            return lbl==='Max'||lbl==='Min'||i===lastIdx;
+          },
+          formatter:v=>fmt(v)
+        }
       },
       scales:{
         x:{
-          type:'category',
           ticks:{
             callback:(v,i)=>{
               const m=monthStr[i];
@@ -160,5 +153,5 @@ function drawChart(tsArr,main,longArr,shortArr,slipArr){
 }
 
 /* ===== 工具 ===== */
-const fmt=v=>(v===''||v===undefined)?'':(+v).toLocaleString('zh-TW');
+const fmt=v=>(v===undefined||v==='')?'':(+v).toLocaleString('zh-TW');
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
