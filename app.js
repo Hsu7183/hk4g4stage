@@ -1,11 +1,11 @@
-/* ===== 常數 ===== */
+/* ========= 常數 ========= */
 const MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
 const ENTRY=['新買','新賣'],EXIT_L=['平賣','強制平倉'],EXIT_S=['平買','強制平倉'];
 
-/* ===== Init ===== */
+/* ========= 入口 ========= */
 document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('btn-clip').addEventListener('click',async e=>{
-    try{analyse(await navigator.clipboard.readText());flash(e.target);}catch(err){alert('剪貼簿錯誤：'+err.message);}
+    try{analyse(await navigator.clipboard.readText());flash(e.target);}catch(err){alert('剪貼簿讀取失敗：'+err.message);}
   });
   document.getElementById('fileInput').addEventListener('change',e=>{
     const f=e.target.files[0];if(!f)return;
@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
 });
 
-/* ===== 主流程 ===== */
+/* ========= 主分析 ========= */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/),q=[],tr=[],eq=[];
   let cum=0,cumSlip=0;
@@ -36,14 +36,15 @@ function analyse(raw){
       in :{ts:pos.tsIn.slice(0,12),price:pos.pIn,type:pos.typeIn},
       out:{ts:ts.slice(0,12),price,type:act,pts,fee,tax,gain,cum,gainSlip,cumSlip}
     });
-    eq.push({x:ts.slice(0,12),y:cum});
+    eq.push(cum);
   });
 
   if(!tr.length){alert('沒有成功配對的交易！');return;}
+
   renderTable(tr);drawChart(eq);
 }
 
-/* ===== 表格 ===== */
+/* ========= 表格 ========= */
 function renderTable(list){
   const tb=document.querySelector('#tbl tbody');tb.innerHTML='';
   list.forEach((t,i)=>{
@@ -64,35 +65,35 @@ function renderTable(list){
   document.getElementById('tbl').hidden=false;
 }
 
-/* ===== 圖表 ===== */
+/* ========= 畫圖 ========= */
 let chart;
 function drawChart(data){
-  if(chart)chart.destroy();
+  if(chart) chart.destroy();
+  const labels=data.map((_,i)=>i+1);
 
-  const maxPt=data.reduce((a,b)=>b.y>a.y?b:a),minPt=data.reduce((a,b)=>b.y<a.y?b:a);
+  /* 找極值索引 */
+  const maxVal=Math.max(...data),minVal=Math.min(...data);
+  const maxIdx=data.indexOf(maxVal),minIdx=data.indexOf(minVal);
 
   chart=new Chart(document.getElementById('equityChart'),{
     type:'line',
     data:{
+      labels,
       datasets:[
         {label:'累積獲利',data,borderColor:'#ff9800',borderWidth:2,pointRadius:0,
          fill:{target:'origin',above:'rgba(255,152,0,.15)'}},
-        {label:'最大獲利',data:[maxPt],pointBackgroundColor:'#d32f2f',borderWidth:0,pointRadius:6,showLine:false},
-        {label:'最大虧損',data:[minPt],pointBackgroundColor:'#2e7d32',borderWidth:0,pointRadius:6,showLine:false}
+        {label:'最大獲利',data:data.map((v,i)=>i===maxIdx?v:null),borderWidth:0,pointRadius:5,pointBackgroundColor:'#d32f2f',showLine:false},
+        {label:'最大虧損',data:data.map((v,i)=>i===minIdx?v:null),borderWidth:0,pointRadius:5,pointBackgroundColor:'#2e7d32',showLine:false}
       ]
     },
     options:{
-      responsive:false,animation:false,
-      interaction:{mode:'nearest',intersect:false},
+      responsive:true,maintainAspectRatio:false,     /* 這版使用自適應 */
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+fmt(c.parsed.y)}}},
-      scales:{
-        x:{type:'category',ticks:{autoSkip:true,maxRotation:45,minRotation:45}},
-        y:{ticks:{callback:v=>fmt(v)}}
-      }
+      scales:{x:{display:false},y:{ticks:{callback:v=>fmt(v)}}}
     }
   });
 }
 
-/* ===== 工具 ===== */
+/* ========= 工具 ========= */
 const fmt=v=>(v===''||v===undefined)?'':(+v).toLocaleString('zh-TW');
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
