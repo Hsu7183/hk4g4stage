@@ -1,183 +1,113 @@
-<script type="module">
-/* ========= 0. 參數 ========= */
-const MULTIPLIER = 200;          // 1 點 = 200 元
-const ENTRY      = ['新買', '新賣'];
-const EXIT_LONG  = ['平賣', '強制平倉'];
-const EXIT_SHORT = ['平買', '強制平倉'];
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>交易剪貼簿分析（MVP）</title>
 
-/* ========= 1. 兩種匯入方式 ========= */
-// ➊ 讀剪貼簿
-window.pasteClipboardContent = async function () {
-  try {
+<!-- ⭐ 極簡內嵌樣式：放大字體、加按鈕樣式 -->
+<style>
+body{font-family:system-ui,sans-serif;max-width:60rem;margin:2rem auto}
+h1{margin-bottom:1rem}
+button,label.btn{padding:.5rem 1rem;margin-right:.5rem;border:0;border-radius:.25rem;cursor:pointer;color:#fff;background:#007bff}
+input[type=file]{display:none}
+pre{background:#f6f8fa;padding:1rem;border-radius:.4rem;white-space:pre-wrap}
+table{width:100%;border-collapse:collapse;margin-top:1rem}
+th,td{border:1px solid #ccc;padding:.4rem;text-align:center}
+th{background:#eee}
+</style>
+</head>
+
+<body>
+<h1>交易剪貼簿分析（MVP）</h1>
+
+<!-- 兩種匯入方式 -->
+<button onclick="readClipboard()">貼上剪貼簿內容</button>
+<label class="btn">選擇檔案 <input type="file" id="file" accept=".txt,.TF"></label>
+
+<pre id="stats">（尚無資料）</pre>
+<table id="tbl" hidden>
+  <thead><tr><th>平倉時間</th><th>多空</th><th>點數</th><th>盈虧(元)</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<!-- ⭐ 全部 JS 放這裡，一檔到位 -->
+<script type="module">
+/* ===== 參數與正反向動作定義 ===== */
+const MULT = 200;                            // 台指期 1點=200元
+const ENTRY = ['新買','新賣'];
+const EXIT_L = ['平賣','強制平倉'];          // 平多
+const EXIT_S = ['平買','強制平倉'];          // 平空
+
+/* ===== 讀剪貼簿 ===== */
+async function readClipboard(){
+  try{
     const txt = await navigator.clipboard.readText();
     analyse(txt);
-  } catch (e) {
-    alert('讀取剪貼簿失敗：' + e.message);
-  }
-};
-// ➋ 上傳檔案
-document.getElementById('fileInput')
-        .addEventListener('change', e => {
-          const f = e.target.files[0];
-          if (!f) return;
-          const r = new FileReader();
-          r.onload = () => analyse(
-            // 用 Big-5 轉碼，.TF 檔就算是 Big-5 也能吃
-            new TextDecoder('big5').decode(r.result)
-          );
-          r.readAsArrayBuffer(f);
-        });
+  }catch(e){alert('讀取剪貼簿失敗：'+e.message);}
+}
 
-/* ========= 2. 主分析程式 ========= */
-function analyse(rawText) {
-  const rows = rawText.trim().split(/\r?\n/);
-  const queue = [];      // 未平倉佇列
-  const trades = [];     // 完成配對後的交易
-  const dailyMap = {};   // key=YYYYMMDD，存淨利
+/* ===== 讀檔上傳 ===== */
+document.getElementById('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>analyse(new TextDecoder('big5').decode(r.result)); // Big5→UTF-8
+  r.readAsArrayBuffer(f);
+});
 
-  rows.forEach(row => {
-    const [ts, priceStr, action] = row.trim().split(/\s+/);
-    if (!action) return;                    // 防呆
-    const price = +parseFloat(priceStr);    // 15663.000000 → 15663
-
+/* ===== 解析→配對→統計 ===== */
+function analyse(txt){
+  const rows=txt.trim().split(/\r?\n/);
+  const q=[];               // 未平倉佇列
+  const trades=[];          // 完成配對
+  rows.forEach(r=>{
+    const [ts,pStr,act]=r.trim().split(/\s+/); if(!act)return;
+    const price=+parseFloat(pStr);             // 15663.000000→15663
     // 建倉
-    if (ENTRY.includes(action)) {
-      queue.push({ side: action === '新買' ? 'LONG':'SHORT',
-                   priceIn: price, tsIn: ts });
-      return;
-    }
-
+    if(ENTRY.includes(act)){q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts});return;}
     // 平倉
-    const i = queue.findIndex(p =>
-         (p.side==='LONG'  && EXIT_LONG .includes(action)) ||
-         (p.side==='SHORT' && EXIT_SHORT.includes(action)));
-    if (i === -1) return;                   // 找不到對應持倉（資料缺口）
-    const pos = queue.splice(i,1)[0];
-    const pnlPts = pos.side==='LONG' ? price-pos.priceIn : pos.priceIn-price;
-    const pnlNTD = pnlPts * MULTIPLIER;
-    const date   = ts.slice(0,8);
-    trades.push({ ...pos, tsOut:ts, priceOut:price, pnlNTD, date });
-    dailyMap[date] = (dailyMap[date]||0) + pnlNTD;
+    const idx=q.findIndex(o=>
+      (o.side==='L' && EXIT_L.includes(act)) ||
+      (o.side==='S' && EXIT_S.includes(act)));
+    if(idx===-1)return;                        // 找不到對應持倉
+    const pos=q.splice(idx,1)[0];
+    const pts= pos.side==='L'? price-pos.pIn : pos.pIn-price;
+    trades.push({ts,side:pos.side==='L'?'多':'空',pts,pnl:pts*MULT});
   });
 
-  render(trades, dailyMap);
-}
+  if(!trades.length){alert('沒有成功配對的交易！');return;}
 
-/* ========= 3. 把統計數字塞回網頁 ========= */
-function render(tr, dailyMap) {
-  if (!tr.length) return alert('沒有配對成功的交易！');
+  /* ---- 統計 ---- */
+  const ttl=trades.length;
+  const win=trades.filter(t=>t.pnl>0);
+  const loss=trades.filter(t=>t.pnl<0);
+  const gp=sum(win.map(t=>t.pnl));
+  const gl=sum(loss.map(t=>t.pnl));
+  const net=gp+gl;
+  const pf=Math.abs(gl)?(gp/Math.abs(gl)).toFixed(2):'∞';
+  const wRate=(win.length/ttl*100).toFixed(2)+'%';
 
-  // ---- 基本統計 ----
-  const ttl   = tr.length;
-  const prof  = tr.filter(t=>t.pnlNTD>0);
-  const loss  = tr.filter(t=>t.pnlNTD<0);
-  const gp    = sum(prof.map(t=>t.pnlNTD));
-  const gl    = sum(loss.map(t=>t.pnlNTD));
-  const net   = gp + gl;
-  const pf    = Math.abs(gl)?(gp/Math.abs(gl)).toFixed(2):'∞';
-  const slAdj = net - ttl*MULTIPLIER;       // 每筆滑點 1 點＝200 元
+  /* ---- 顯示統計 ---- */
+  document.getElementById('stats').textContent=
+`總交易筆數 : ${ttl}
+勝率       : ${wRate}
+淨利       : ${fmt(net)} 元
+毛利 / 毛損: ${fmt(gp)} / ${fmt(gl)} 元
+獲利因子   : ${pf}`;
 
-  // ---- 多空統計 ----
-  const longT   = tr.filter(t=>t.side==='LONG');
-  const shortT  = tr.filter(t=>t.side==='SHORT');
-  const longP   = sum(longT .map(t=>t.pnlNTD));
-  const shortP  = sum(shortT.map(t=>t.pnlNTD));
-  const longWin = longT .filter(t=>t.pnlNTD>0).length;
-  const longLoss= longT .length-longWin;
-  const shortWin= shortT.filter(t=>t.pnlNTD>0).length;
-  const shortLoss=shortT.length-shortWin;
-
-  // ---- 勝率 ----
-  const winTrades   = prof.length;
-  const lossTrades  = loss.length;
-  const winRate     = pct(winTrades, ttl);
-  const lossRate    = pct(lossTrades, ttl);
-  const longWinRt   = pct(longWin , longT.length);
-  const longLossRt  = pct(longLoss, longT.length);
-  const shortWinRt  = pct(shortWin, shortT.length);
-  const shortLossRt = pct(shortLoss, shortT.length);
-
-  // ---- 單日最大獲利 / 虧損 ----
-  const dailyNet = Object.values(dailyMap);
-  const maxDaily = Math.max(...dailyNet);
-  const minDaily = Math.min(...dailyNet);
-
-  // ---- 寫回 HTML ----
-  set('totalTrades'          , ttl);
-  set('winningTrades'        , winTrades);
-  set('losingTrades'         , lossTrades);
-  set('totalProfit'          , net);
-  set('slippageAdjustedProfit', slAdj);
-  set('overallWinRate'       , winRate);
-  set('overallLossRate'      , lossRate);
-  set('overallMaxDailyProfit', maxDaily);
-  set('overallMaxDailyLoss'  , minDaily);
-
-  set('longTrades'  , longT.length);
-  set('longProfit'  , longP);
-  set('longWinRate' , longWinRt);
-  set('longLossRate', longLossRt);
-  set('shortTrades' , shortT.length);
-  set('shortProfit' , shortP);
-  set('shortWinRate', shortWinRt);
-  set('shortLossRate', shortLossRt);
-
-  // ---- 填表格 ----
-  const tbody = document.getElementById('dailyStats');
-  tbody.innerHTML = '';
-  tr.forEach(t=>{
-    const r=document.createElement('tr');
-    r.innerHTML=`
-      <td>${t.tsOut}</td>
-      <td>${t.priceOut}</td>
-      <td>${t.side==='LONG'?'平賣/強平':'平買/強平'}</td>
-      <td>${Math.abs(t.pnlNTD)/MULTIPLIER}</td>
-      <td>${t.side==='LONG'?Math.abs(t.pnlNTD)/MULTIPLIER:''}</td>
-      <td>${t.side==='SHORT'?Math.abs(t.pnlNTD)/MULTIPLIER:''}</td>
-      <td>${t.pnlNTD}</td>
-      <td>${dailyMap[t.date]}</td>
-      <td><!-- 累積獲利：下方圖表直接呈現 --></td>`;
-    tbody.appendChild(r);
+  /* ---- 填表 ---- */
+  const tbody=document.querySelector('#tbl tbody');
+  tbody.innerHTML='';
+  trades.forEach(t=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${t.ts}</td><td>${t.side}</td><td>${t.pts}</td><td>${fmt(t.pnl)}</td>`;
+    tbody.appendChild(tr);
   });
-
-  // ---- 畫圖 ----
-  drawChart(dailyMap);
+  document.getElementById('tbl').hidden=false;
 }
 
-/* ========= 4. 圖表 ========= */
-let chartObj=null;
-function drawChart(map) {
-  if(chartObj){ chartObj.destroy(); }
-  const ctx=document.getElementById('chart');
-  const dates = Object.keys(map).sort();
-  const cumus = [];
-  dates.reduce((acc,d)=>{
-    acc += map[d];
-    cumus.push(acc);
-    return acc;
-  },0);
-
-  chartObj=new Chart(ctx,{
-    type:'line',
-    data:{
-      labels:dates,
-      datasets:[{
-        label:'每日累積結餘',
-        data:cumus,
-        borderColor:'yellow',
-        backgroundColor:'rgba(255,255,0,.1)',
-        fill:true
-      }]
-    },
-    options:{
-      responsive:true,
-      scales:{y:{beginAtZero:false}}
-    }
-  });
-}
-
-/* ========= 5. 小工具 ========= */
-const sum = arr => arr.reduce((a,b)=>a+b,0);
-const pct = (num,den) => den? (num/den*100).toFixed(2)+'%':'0%';
-const set = (id,val)=>{document.getElementById(id).textContent=val.toLocaleString('zh-TW');};
+/* ===== 小工具 ===== */
+const sum=a=>a.reduce((x,y)=>x+y,0);
+const fmt=n=>(+n).toLocaleString('zh-TW');
 </script>
+</body>
+</html>
