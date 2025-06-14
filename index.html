@@ -1,36 +1,49 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
-  <link rel="stylesheet" href="style.css">
+
+  <!-- 樣式 -->
+  <link rel="stylesheet" href="style.css" />
+  <!-- 圖表 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-<header>
-  <h1>交易剪貼簿分析</h1>
-  <div class="btn-group">
-    <button id="btn-clip"  class="btn primary">貼上剪貼簿內容</button>
-    <label  class="btn primary">
-      選擇檔案 <input type="file" id="fileInput" accept=".txt,.TF" hidden>
-    </label>
-  </div>
-</header>
+  <!-- ── 頁首 ── -->
+  <header>
+    <h1>交易剪貼簿分析</h1>
 
-<section id="statsGrid" class="grid"></section>
-<canvas id="equityChart" height="320"></canvas>
+    <div class="btn-group">
+      <button id="btn-clip" class="btn primary">貼上剪貼簿內容</button>
 
-<table id="tbl" hidden>
-  <thead>
-    <tr>
-      <th>建倉</th><th>平倉</th><th>多空</th><th>點數</th>
-      <th>盈虧&nbsp;(元)</th><th>持倉K</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+      <!-- 上傳檔案 -->
+      <label class="btn primary">
+        選擇檔案
+        <input type="file" id="fileInput" accept=".txt,.TF" hidden>
+      </label>
+    </div>
+  </header>
 
-<script type="module" src="app.js"></script>
+  <!-- 統計卡片 -->
+  <section id="statsGrid" class="grid"></section>
+
+  <!-- 盈虧折線圖 -->
+  <canvas id="equityChart" height="320"></canvas>
+
+  <!-- 交易明細 -->
+  <table id="tbl" hidden>
+    <thead>
+      <tr>
+        <th>建倉</th><th>平倉</th><th>多空</th><th>點數</th>
+        <th>盈虧(元)</th><th>持倉K</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- 主程式 -->
+  <script type="module" src="app.js"></script>
 </body>
 </html>
