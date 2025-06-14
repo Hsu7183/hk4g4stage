@@ -4,11 +4,14 @@
   <meta charset="utf-8" />
   <title>交易剪貼簿分析</title>
 
+  <!-- 樣式 -->
   <link rel="stylesheet" href="style.css" />
+  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
+  <!-- ── 頁首 ── -->
   <header>
     <h1>交易剪貼簿分析</h1>
 
@@ -21,10 +24,14 @@
     </div>
   </header>
 
+  <!-- 統計卡片 -->
   <section id="statsGrid" class="grid"></section>
+
+  <!-- 盈虧折線圖 -->
   <canvas id="equityChart" height="320"></canvas>
 
-  <h2 style="max-width:1200px;margin:1.6rem auto .6rem">交易紀錄</h2>
+  <!-- 交易明細 -->
+  <h2 class="sub">交易紀錄</h2>
   <table id="tbl" hidden>
     <thead>
       <tr>
@@ -47,6 +54,7 @@
     <tbody></tbody>
   </table>
 
+  <!-- 主程式 -->
   <script type="module" src="app.js"></script>
 </body>
 </html>
