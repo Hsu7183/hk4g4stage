@@ -1,160 +1,90 @@
-/* ================================================================
-   基本參數
-   ================================================================ */
-const CONTRACT_MULT   = 200;       // 1 點 = 200 元
-const FEE_PER_SIDE    = 90;        // 手續費 (單邊) *可自訂
-const INIT_CAPITAL    = 1_000_000; // 起始資金 (for TWR/投入率)
+/* ===== 參數（改這三行就好） ===== */
+const MULT      = 200;   // 1 點 = 200 元
+const FEE_SIDE  = 50;    // 單邊手續費
+const SLIP_PT   = 0.5;   // 預估滑點 (點)
 
-const ENTRY  = ['新買','新賣'];
-const EXIT_L = ['平賣','強制平倉'];
-const EXIT_S = ['平買','強制平倉'];
+/* ===== 關鍵字 ===== */
+const ENTRY=['新買','新賣'],EXIT_L=['平賣','強制平倉'],EXIT_S=['平買','強制平倉'];
 
-/* ================================================================
-   UI：剪貼簿 & 檔案
-   ================================================================ */
-async function readClipboard(){
-  const txt = await navigator.clipboard.readText();
-  analyse(txt);
-}
-document.querySelector('button').onclick = readClipboard;
-document.getElementById('file').onchange = e=>{
-  const f=e.target.files[0]; if(!f)return;
+/* ===== 介面事件 ===== */
+const clipBtn=document.getElementById('btn-clip');
+clipBtn.addEventListener('click',async()=>{
+  try{const txt=await navigator.clipboard.readText();flash(clipBtn);analyse(txt);}
+  catch(e){alert('無法讀取剪貼簿:'+e.message);}
+});
+const fileIn=document.getElementById('fileInput');
+fileIn.addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;
   const r=new FileReader();
-  r.onload=()=>analyse(new TextDecoder('big5').decode(r.result));
+  r.onload=()=>{flash(fileIn.parentElement);analyse(new TextDecoder('big5').decode(r.result));};
   r.readAsArrayBuffer(f);
-};
+});
 
-/* ================================================================
-   主流程：解析→配對→統計
-   ================================================================ */
+/* ===== 主分析 ===== */
 function analyse(raw){
-  const rows=raw.trim().split(/\r?\n/);
-  const q=[], trades=[], dailyEquity={}, datesSet=new Set();
-
+  const rows=raw.trim().split(/\r?\n/),q=[],tr=[],eq=[],dates=new Set();
+  let cum=0,expo=0,maxExpo=0;
   rows.forEach(r=>{
-    const [ts,pStr,act] = r.trim().split(/\s+/);
-    if(!act) return;
-    const price=+parseFloat(pStr);
-    const date = ts.slice(0,8);
-    datesSet.add(date);
+    const [ts,pS,a]=r.trim().split(/\s+/);if(!a)return;
+    const p=+parseFloat(pS),d=ts.slice(0,8);dates.add(d);
+    if(ENTRY.includes(a)){q.push({s:a==='新買'?'L':'S',pIn:p,tsIn:ts});expo+=p*MULT;maxExpo=Math.max(maxExpo,expo);return;}
+    const i=q.findIndex(o=>(o.s==='L'&&EXIT_L.includes(a))||(o.s==='S'&&EXIT_S.includes(a)));if(i===-1)return;
+    const pos=q.splice(i,1)[0];expo-=pos.pIn*MULT;
+    const pts=pos.s==='L'?p-pos.pIn:pos.pIn-p,pnl=pts*MULT;
+    tr.push({...pos,tsOut:ts,side:pos.s==='L'?'多':'空',pts,pnl});
+    cum+=pnl;eq.push(cum);
+  });
+  if(!tr.length){alert('沒有成功配對的交易');return;}
 
-    if(ENTRY.includes(act)){          // 建倉
-      q.push({side: act==='新買'?'L':'S',pIn:price,tsIn:ts});
-      return;
-    }
+  /* ——— 統計 ——— */
+  const win=tr.filter(t=>t.pnl>0),loss=tr.filter(t=>t.pnl<0),
+        gp=sum(win.map(t=>t.pnl)),gl=sum(loss.map(t=>t.pnl)),
+        cost=tr.length*(FEE_SIDE*2+SLIP_PT*MULT),
+        net=gp+gl-cost,pf=Math.abs(gl)?(gp/Math.abs(gl)).toFixed(2):'∞',
+        avgT=(net/tr.length).toFixed(0),avgW=win.length?(gp/win.length).toFixed(0):0,
+        avgL=loss.length?(gl/loss.length).toFixed(0):0,rr=(avgW/Math.abs(avgL||1)).toFixed(2);
 
-    const idx = q.findIndex(o=>
-      (o.side==='L'&&EXIT_L.includes(act)) ||
-      (o.side==='S'&&EXIT_S.includes(act))
-    );
-    if(idx===-1) return;              // 找不到對單
-    const pos = q.splice(idx,1)[0];
-    const pts = pos.side==='L'? price-pos.pIn : pos.pIn-price;
-    const pnl = pts*CONTRACT_MULT - FEE_PER_SIDE*2; // 兩邊手續費
-    const holdMin = (toSec(ts)-toSec(pos.tsIn))/60; // 持倉分鐘 = bar 數
-    trades.push({...pos,tsOut:ts,pts,pnl,holdBar:holdMin});
-    dailyEquity[date]=(dailyEquity[date]??0)+pnl;
+  const stats=[
+    ['淨利',net],['毛利',gp],['毛損',gl],['獲利因子',pf],
+    ['總交易成本',cost],['最大投入金額',maxExpo],
+    ['總交易次數',tr.length],['獲利交易次數',win.length],
+    ['虧損交易次數',loss.length],['勝率',pct(win.length,tr.length)],
+    ['平均交易',avgT],['平均獲利交易',avgW],['平均虧損交易',avgL],
+    ['平均獲利虧損比',rr],['最大獲利交易',max(tr.map(t=>t.pnl))],
+    ['最大虧損交易',min(tr.map(t=>t.pnl))]
+  ];
+
+  /* ——— 塞卡片 ——— */
+  const grid=document.getElementById('statsGrid');grid.innerHTML='';
+  stats.forEach(([k,v])=>{
+    const c=document.createElement('div');c.className='card';
+    c.innerHTML=`<h3>${k}</h3><div>${fmt(v)}</div>`;grid.appendChild(c);
   });
 
-  if(!trades.length){ alert('沒有配對成功的交易'); return; }
-
-  /* ======== 累積曲線 for MFE/MDD ======== */
-  const cumu=[]; let acc=0;
-  Object.keys(dailyEquity).sort().forEach(d=>{
-    acc+=dailyEquity[d]; cumu.push(acc);
-  });
-  const maxEqui=Math.max(...cumu), minEqui=Math.min(...cumu);
-
-  /* ======== 基本計算 ======== */
-  const ttl=trades.length;
-  const win=trades.filter(t=>t.pnl>0);
-  const loss=trades.filter(t=>t.pnl<0);
-  const gp = sum(win.map(t=>t.pnl));
-  const gl = sum(loss.map(t=>t.pnl));
-  const net= gp+gl;
-  const pf = Math.abs(gl)?(gp/Math.abs(gl)).toFixed(2):'∞';
-  const avg = net/ttl|0, avgW=gp/win.length|0, avgL=gl/loss.length|0;
-  const rr  = avgW/Math.abs(avgL) || 0;
-
-  const maxW = Math.max(...trades.map(t=>t.pnl));
-  const maxL = Math.min(...trades.map(t=>t.pnl));
-
-  /* ======== 持倉 K 相關 ======== */
-  const avgHoldAll   = avgArr(trades.map(t=>t.holdBar));
-  const avgHoldWin   = avgArr(win   .map(t=>t.holdBar));
-  const avgHoldLoss  = avgArr(loss  .map(t=>t.holdBar));
-
-  /* ======== 交易成本、投入 ======== */
-  const feeTotal = ttl*FEE_PER_SIDE*2;
-  let openLots=0, maxCapital=0;
-  trades.forEach(t=>{
-    // 進場時資金佔用 ≈ 成交價*乘數 (單口)
-    maxCapital=Math.max(maxCapital, t.pIn*CONTRACT_MULT*++openLots);
-    --openLots;
-  });
-  const maxInvestReturn = net/maxCapital;
-
-  /* ======== TWR (時間加權) ======== */
-  let twrEquity=INIT_CAPITAL;
-  Object.keys(dailyEquity).sort().forEach(d=>{
-    twrEquity += dailyEquity[d];
-  });
-  const twr = (twrEquity/INIT_CAPITAL-1);
-
-  /* ======== 日期統計 ======== */
-  const tradeDays = datesSet.size;
-  const firstDate = Math.min(...[...datesSet]);
-  const lastDate  = Math.max(...[...datesSet]);
-  const backtestDays =
-    (Date.parse(toDate(lastDate)) - Date.parse(toDate(firstDate)))
-    /86400000 +1;
-  const tradeRatio = (tradeDays/backtestDays*100).toFixed(2)+'%';
-
-  /* ======== 輸出 ======== */
-  document.getElementById('stats').textContent = `
-淨利                : ${fmt(net)}
-毛利 / 毛損         : ${fmt(gp)} / ${fmt(gl)}
-獲利因子            : ${pf}
-總交易成本          : ${fmt(feeTotal)}
-最大投入金額        : ${fmt(maxCapital)}
-總交易筆數          : ${ttl}
-獲利 / 虧損筆數     : ${win.length} / ${loss.length}
-勝率                : ${(win.length/ttl*100).toFixed(2)}%
-平均交易            : ${fmt(avg)}
-平均獲利 / 虧損交易 : ${fmt(avgW)} / ${fmt(avgL)}
-平均盈虧比          : ${rr.toFixed(2)}
-最大獲利 / 虧損交易 : ${fmt(maxW)} / ${fmt(maxL)}
-最大區間獲利 / 虧損 : ${fmt(maxEqui)} / ${fmt(minEqui)}
------------------- 持倉時間 (K) ------------------
-平均持倉           : ${avgHoldAll}
-獲利持倉           : ${avgHoldWin}
-虧損持倉           : ${avgHoldLoss}
-回測K線總數        : ${backtestDays* (24*60)}  (若1分K且全天盤可再細分)
------------------- 報酬 --------------------------
-時間加權報酬(TWR)  : ${(twr*100).toFixed(2)}%
-最大投入報酬率      : ${(maxInvestReturn*100).toFixed(2)}%
-實際交易天數        : ${tradeDays}
-交易天數佔比        : ${tradeRatio}
-`;
-
-  /* ======== 填表 ======== */
-  const tb=document.querySelector('#tbl tbody'); tb.innerHTML='';
-  trades.forEach(t=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${t.tsOut}</td><td>${t.side==='L'?'多':'空'}</td>
-    <td>${t.pts}</td><td>${fmt(t.pnl)}</td><td>${t.holdBar}</td>`;
-    tb.appendChild(tr);
+  /* ——— 表格 ——— */
+  const tbody=document.querySelector('#tbl tbody');tbody.innerHTML='';
+  tr.forEach(t=>{
+    const r=document.createElement('tr');
+    r.innerHTML=`<td>${t.tsIn}</td><td>${t.tsOut}</td><td>${t.side}</td><td>${t.pts}</td><td>${fmt(t.pnl)}</td><td>—</td>`;
+    tbody.appendChild(r);
   });
   document.getElementById('tbl').hidden=false;
+
+  draw(eq);
 }
 
-/* ================================================================
-   小工具
-   ================================================================ */
-const sum=a=>a.reduce((x,y)=>x+y,0);
-const avgArr=a=>a.length?(sum(a)/a.length).toFixed(1):0;
-const fmt=n=>(+n).toLocaleString('zh-TW');
-const toSec=s=>Date.parse(
-  `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(8,10)}:${s.slice(10,12)}:${s.slice(12,14)}Z`
-)/1000;
-const toDate=s=>`${s.slice(0,4)}-${s.slice(4,2)}-${s.slice(6,2)}`;
+/* ——— Chart.js ——— */
+let chart;
+function draw(eq){ if(chart)chart.destroy();
+  chart=new Chart(document.getElementById('equityChart'),{
+    type:'line',
+    data:{labels:eq.map((_,i)=>i+1),datasets:[{data:eq,borderWidth:2,pointRadius:0,borderColor:'#ff9800',fill:{target:'origin',above:'rgba(255,152,0,.15)'}}]},
+    options:{plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},hover:{mode:'index',intersect:false},scales:{x:{display:false},y:{ticks:{callback:v=>fmt(v)}}}}
+  });
+}
+
+/* ——— 小工具 ——— */
+const sum=a=>a.reduce((x,y)=>x+y,0),max=a=>Math.max(...a),min=a=>Math.min(...a);
+const fmt=n=>(typeof n==='string')?n:(+n).toLocaleString('zh-TW');
+const pct=(n,d)=>d?(n/d*100).toFixed(2)+'%':'0%';
+function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
