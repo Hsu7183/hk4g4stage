@@ -1,27 +1,98 @@
 :root{
-  --bg:#f3f4f6;--card:#fff;--border:#e0e0e0;
-  --primary:#1976d2;--primary-dark:#155ca8;
+  --bg:#f3f4f6;
+  --card:#fff;
+  --border:#e0e0e0;
+  --primary:#1976d2;
+  --primary-dark:#155ca8;
 }
 
-html,body{margin:0;padding:0;background:var(--bg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#222}
+/* ===== 全域 ===== */
+html,body{
+  margin:0;
+  padding:0;
+  background:var(--bg);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:#222;
+}
 
-header{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;padding:1.2rem 1rem 0;max-width:1200px;margin:auto}
-h1{flex:1 1 240px;font-size:1.6rem;margin:0}
-.sub{max-width:1200px;margin:1.6rem auto .6rem;font-size:1.3rem;color:#333}
+/* ===== 標題列 ===== */
+header{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:1rem;
+  padding:1.2rem 1rem 0;
+  max-width:1200px;
+  margin:auto;
+}
+h1{
+  flex:1 1 240px;
+  font-size:1.6rem;
+  margin:0;
+}
+.sub{
+  max-width:1200px;
+  margin:1.6rem auto .6rem;
+  font-size:1.3rem;
+  color:#333;
+}
 
+/* ===== 按鈕 ===== */
 .btn-group{display:flex;gap:.6rem}
-.btn{display:inline-flex;align-items:center;padding:.6rem 1.1rem;border:0;border-radius:.35rem;font-size:.88rem;cursor:pointer}
-.btn.primary{background:var(--primary);color:#fff}.btn.primary:hover{background:var(--primary-dark)}
+.btn{
+  display:inline-flex;
+  align-items:center;
+  padding:.6rem 1.1rem;
+  border:0;
+  border-radius:.35rem;
+  font-size:.88rem;
+  cursor:pointer;
+}
+.btn.primary{background:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-dark)}
 .btn input{display:none}
 
-.chart-wrap{max-width:1200px;margin:1rem auto}
-.chart-wrap canvas{width:100%!important;height:400px!important;background:var(--card);border:1px solid var(--border);border-radius:.5rem;padding:.6rem;box-sizing:border-box}
+/* ===== 圖表容器 ===== */
+.chart-wrap{
+  max-width:1200px;
+  margin:1rem auto;
+}
+.chart-wrap canvas{
+  width:100%!important;
+  height:400px!important;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:.5rem;
+  padding:.6rem;
+  box-sizing:border-box;
+}
 
-table{width:100%;max-width:1200px;margin:1rem auto;border-collapse:collapse;background:var(--card);border:1px solid var(--border);font-size:.84rem}
-th,td{padding:.45rem .3rem;border-bottom:1px solid var(--border);text-align:center}
-thead th{background:#fafafa;font-weight:600}
+/* ===== 表格 ===== */
+table{
+  width:100%;
+  max-width:1200px;
+  margin:1rem auto;
+  border-collapse:collapse;
+  background:var(--card);
+  border:1px solid var(--border);
+  font-size:.84rem;
+}
+th,td{
+  padding:.45rem .3rem;
+  border-bottom:1px solid var(--border);
+  text-align:center;
+}
+thead th{
+  background:#fafafa;
+  font-weight:600;
+}
 tbody tr:nth-child(even){background:#fafafa}
 tbody td:empty::before{content:"—";color:#bbb}
 
-@media(max-width:1240px){table{display:block;overflow-x:auto}}
-@media(max-width:600px){th,td{font-size:.72rem}}
+/* ===== RWD ===== */
+@media(max-width:1240px){
+  table{display:block;overflow-x:auto}
+}
+@media(max-width:600px){
+  th,td{font-size:.72rem}
+}
