@@ -2,39 +2,35 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <title>交易剪貼簿分析 – 完整版</title>
+  <title>交易剪貼簿分析</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-  <!-- 頁首 + 兩顆按鈕 -->
-  <header>
-    <h1>交易剪貼簿分析</h1>
-    <button id="btn-clip">貼上剪貼簿內容</button>
-    <label class="btn">
+<header>
+  <h1>交易剪貼簿分析</h1>
+  <div class="btn-group">
+    <button id="btn-clip"  class="btn primary">貼上剪貼簿內容</button>
+    <label  class="btn primary">
       選擇檔案 <input type="file" id="fileInput" accept=".txt,.TF" hidden>
     </label>
-  </header>
+  </div>
+</header>
 
-  <!-- ★ 這裡放 30+ 指標卡片 -->
-  <section id="statsGrid" class="grid"></section>
+<section id="statsGrid" class="grid"></section>
+<canvas id="equityChart" height="320"></canvas>
 
-  <!-- ★ 盈虧曲線 -->
-  <canvas id="equityChart"></canvas>
+<table id="tbl" hidden>
+  <thead>
+    <tr>
+      <th>建倉</th><th>平倉</th><th>多空</th><th>點數</th>
+      <th>盈虧&nbsp;(元)</th><th>持倉K</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
 
-  <!-- ★ 交易明細表 -->
-  <table id="tbl" hidden>
-    <thead>
-      <tr>
-        <th>建倉</th><th>平倉</th><th>多空</th><th>點數</th>
-        <th>盈虧(元)</th><th>持倉K</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <!-- 連結到統計程式 -->
-  <script type="module" src="app.js"></script>
+<script type="module" src="app.js"></script>
 </body>
 </html>
