@@ -4,8 +4,8 @@ const ENTRY = ['新買', '新賣'],
       EXIT_L = ['平賣', '強制平倉'],
       EXIT_S = ['平買', '強制平倉'];
 
-const cvs  = document.getElementById('equityChart');
-const tbl  = document.getElementById('tbl');
+const cvs = document.getElementById('equityChart');
+const tbl = document.getElementById('tbl');
 
 /* ---------- KPI 容器 ---------- */
 let statBox = document.getElementById('stats');
@@ -14,8 +14,21 @@ if (!statBox) {
   statBox.id = 'stats';
   statBox.style.maxWidth = '1200px';
   statBox.style.margin   = '1rem auto';
-  statBox.style.fontSize = '.88rem';
+  statBox.style.fontSize = '.84rem';
+  statBox.style.lineHeight = '1.4';
   document.querySelector('header').after(statBox);
+
+  /* 一次性樣式 */
+  const style = document.createElement('style');
+  style.innerHTML = `
+    #stats section{margin-bottom:.9rem}
+    #stats h3{margin:.3rem 0;font-size:.95rem;border-bottom:1px solid #e0e0e0;padding-bottom:.2rem}
+    .stat-grid{display:flex;flex-wrap:wrap;gap:.6rem .9rem}
+    .stat-item{min-width:110px;white-space:nowrap}
+    .stat-key{color:#555}
+    .stat-val{font-weight:600}
+  `;
+  document.head.appendChild(style);
 }
 
 /* ---------- 讀取剪貼簿 / 檔案 ---------- */
@@ -27,8 +40,7 @@ document.getElementById('fileInput').onchange = e => {
   const f = e.target.files[0]; if (!f) return;
   const read = enc => new Promise((ok, no) => {
     const r = new FileReader();
-    r.onload  = () => ok(r.result);
-    r.onerror = () => no(r.error);
+    r.onload  = () => ok(r.result); r.onerror = () => no(r.error);
     enc ? r.readAsText(f, enc) : r.readAsText(f);
   });
   (async () => {
@@ -55,7 +67,7 @@ function analyse (raw) {
       q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw, inIdx: idx, typeIn: act });
       return;
     }
-    /* 出場配對 */
+    /* 出場 */
     const idxQ = q.findIndex(o =>
       (o.side === 'L' && EXIT_L.includes(act)) ||
       (o.side === 'S' && EXIT_S.includes(act))
@@ -88,70 +100,62 @@ function analyse (raw) {
   drawChart(tsArr, tot, lon, sho, sli);
 }
 
-/* ---------- KPI 統計 ---------- */
+/* ---------- KPI 統計 (flex-grid) ---------- */
 function renderStats (tr, cum, cumSlip) {
   const sum = arr => arr.reduce((a,b)=>a+b,0);
   const isWin  = t => t.gain > 0;
   const isLoss = t => t.gain < 0;
   const longs  = tr.filter(t => t.pos.side === 'L');
   const shorts = tr.filter(t => t.pos.side === 'S');
+  const pct    = n => (n*100).toFixed(1)+'%';
 
-  const baseStat = list => {
-    const win  = list.filter(isWin);
-    const loss = list.filter(isLoss);
+  /* 基本統計生成器 */
+  const basic = list =>{
+    const win=list.filter(isWin), loss=list.filter(isLoss);
     return {
-      交易數     : list.length,
-      勝率       : list.length ? win.length / list.length : 0,
-      敗率       : list.length ? loss.length / list.length : 0,
-      累計獲利   : sum(list.map(t => t.gain)),
-      正點數     : sum(win.map(t => t.pts)),
-      負點數     : sum(loss.map(t => t.pts)),
-      總點數     : sum(list.map(t => t.pts))
+      '交易數':     list.length,
+      '勝率':       pct(win.length/(list.length||1)),
+      '敗率':       pct(loss.length/(list.length||1)),
+      '累計獲利':   sum(list.map(t=>t.gain)),
+      '正點數':     sum(win.map(t=>t.pts)),
+      '負點數':     sum(loss.map(t=>t.pts)),
+      '總點數':     sum(list.map(t=>t.pts))
     };
   };
 
-  /* ── 區塊統計 ── */
   const stats = {
-    全部 : baseStat(tr),
-    多單 : baseStat(longs),
-    空單 : baseStat(shorts)
+    '全部': basic(tr),
+    '多單': basic(longs),
+    '空單': basic(shorts)
   };
 
-  /* 最大回撤 (全部) */
+  /* 額外指標加到「全部」 */
+  // 最大回撤
   let peak = 0, mdd = 0;
-  tr.forEach(t => { peak = Math.max(peak, t.cum); mdd = Math.min(mdd, t.cum - peak); });
-  stats.全部.最大回撤金額 = mdd;
-
-  /* 單日最大獲利 / 虧損 (全部) */
+  tr.forEach(t=> { peak = Math.max(peak, t.cum); mdd = Math.min(mdd, t.cum-peak); });
+  stats.全部['最大回撤'] = mdd;
+  // 單日最大獲利 / 虧損
   const daily = {};
-  tr.forEach(t => {
-    const d = t.tsOut.slice(0, 8);
-    daily[d] = (daily[d] || 0) + t.gain;
-  });
-  stats.全部.單日最大獲利 = Math.max(...Object.values(daily));
-  stats.全部.單日最大虧損 = Math.min(...Object.values(daily));
-  stats.全部.滑價累計獲利 = cumSlip;
+  tr.forEach(t => daily[t.tsOut.slice(0,8)] = (daily[t.tsOut.slice(0,8)]||0)+t.gain );
+  stats.全部['單日最大獲利'] = Math.max(...Object.values(daily));
+  stats.全部['單日最大虧損'] = Math.min(...Object.values(daily));
+  stats.全部['滑價累計獲利'] = cumSlip;
 
-  /* KPI 表格輸出 */
-  const fmtP = n => (n*100).toFixed(1) + '%';
-  const cell = (k,v) =>
-    `<tr><td style="text-align:left">${k}</td><td>${typeof v==='number'?fmt(v):v}</td></tr>`;
-  let html = '<table style="width:100%;border-collapse:collapse;border:1px solid #ddd">';
-  Object.entries(stats).forEach(([sec,obj]) => {
-    html += `<tr style="background:#fafafa"><th colspan="2" style="text-align:left;padding:.3rem .4rem">${sec}</th></tr>`;
+  /* 產生 HTML */
+  let html='';
+  Object.entries(stats).forEach(([title,obj])=>{
+    html += `<section><h3>${title}</h3><div class="stat-grid">`;
     Object.entries(obj).forEach(([k,v])=>{
-      const val = /率$/.test(k) ? fmtP(v) : fmt(v);
-      html += cell(k, val);
+      html += `<div class="stat-item"><span class="stat-key">${k}</span>：<span class="stat-val">${fmt(v)}</span></div>`;
     });
+    html += '</div></section>';
   });
-  html += '</table>';
   statBox.innerHTML = html;
 }
 
 /* ---------- 交易紀錄表 ---------- */
 function renderTable (list) {
-  const body = tbl.querySelector('tbody');
-  body.innerHTML = '';
+  const body = tbl.querySelector('tbody'); body.innerHTML = '';
   list.forEach((t, i) => {
     body.insertAdjacentHTML('beforeend', `
       <tr>
@@ -169,45 +173,44 @@ function renderTable (list) {
   tbl.hidden = false;
 }
 
-/* ---------- 圖表 ---------- */
+/* ---------- 畫圖 ---------- */
 let chart;
 function drawChart (tsArr, T, L, S, P) {
   if (chart) chart.destroy();
 
-  /* 月份序列 (26 個月：資料區前後各 +1) */
+  /* 月份序列（前後各 +1, 共 26 個月） */
   const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
-  const addM    = (d,n) => new Date(d.getFullYear(), d.getMonth()+n);
+  const addM    = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
   const toYM    = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
-  const start     = addM(ym2Date(tsArr[0].slice(0,6)), -1);
-  const months    = [];
-  for(let d=start; months.length<26; d=addM(d,1)) months.push(toYM(d));
-  const monthIdx  = {}; months.forEach((m,i)=> monthIdx[m.replace('/','')] = i);
+  const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
+  const months=[]; for(let d=start; months.length<26; d=addM(d,1)) months.push(toYM(d));
+  const monthIdx={}; months.forEach((m,i)=> monthIdx[m.replace('/','')]=i);
 
-  /* X 座標：月序號 + 月內比例 */
-  const daysInMonth = (y,m)=> new Date(y,m,0).getDate();
+  /* X 座標：月序 + 月內比例 */
+  const daysInMonth=(y,m)=> new Date(y,m,0).getDate();
   const X = tsArr.map(ts=>{
     const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8);
     const hh=+ts.slice(8,10), mm=+ts.slice(10,12);
-    const frac=(d-1 + (hh+mm/60)/24)/daysInMonth(y,m);
+    const frac=(d-1+(hh+mm/60)/24)/daysInMonth(y,m);
     return monthIdx[ts.slice(0,6)] + frac;
   });
 
-  /* 極值位置 */
+  /* 極值索引 */
   const maxI = T.indexOf(Math.max(...T));
   const minI = T.indexOf(Math.min(...T));
 
   /* 背景條 & 月份文字 */
-  const stripe = { id:'stripe', beforeDraw(c){
+  const stripe={id:'stripe', beforeDraw(c){
     const {ctx,chartArea:{left,right,top,bottom}} = c, w=(right-left)/26;
     ctx.save();
     months.forEach((_,i)=>{
-      ctx.fillStyle = i%2? 'rgba(0,0,0,.05)' : 'transparent';
+      ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
       ctx.fillRect(left+i*w, top, w, bottom-top);
     });
     ctx.restore();
   }};
-  const mmLabel = { id:'mmLabel', afterDraw(c){
+  const mmLabel={id:'mmLabel', afterDraw(c){
     const {ctx,chartArea:{left,right,bottom}} = c, w=(right-left)/26;
     ctx.save();
     ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#555';
@@ -215,25 +218,24 @@ function drawChart (tsArr, T, L, S, P) {
     ctx.restore();
   }};
 
-  /* 資料線 */
-  const mkLine = (d,col,fill=false)=>({
+  /* 線樣式 */
+  const mkLine=(d,col,fill=false)=>({
     data:d, stepped:true,
     borderColor:col, borderWidth:2,
     pointRadius:4, pointBackgroundColor:col, pointBorderColor:col, pointBorderWidth:1,
     fill
   });
-  const mkLast = (d,col)=>({
+  const mkLast=(d,col)=>({
     data:d.map((v,i)=> i===d.length-1? v:null),
     showLine:false, pointRadius:6,
     pointBackgroundColor:col, pointBorderColor:col, pointBorderWidth:1,
     datalabels:{
-      display:true,
-      anchor:'center', align:'right', offset:8,
+      display:true, anchor:'center', align:'right', offset:8,
       formatter:v=> v?.toLocaleString('zh-TW') ?? '',
       color:'#000', clip:false, font:{size:10}
     }
   });
-  const mkMark = (d,i,col)=>({
+  const mkMark=(d,i,col)=>({
     data:d.map((v,j)=> j===i? v:null),
     showLine:false, pointRadius:6,
     pointBackgroundColor:col, pointBorderColor:col, pointBorderWidth:1,
@@ -247,12 +249,12 @@ function drawChart (tsArr, T, L, S, P) {
     }
   });
 
-  chart = new Chart(cvs, {
+  chart = new Chart(cvs,{
     type:'line',
     data:{
       labels:X,
       datasets:[
-        mkLine(T,'#fbc02d',{ target:'origin', above:'rgba(255,138,128,.18)', below:'rgba(200,230,201,.18)' }),
+        mkLine(T,'#fbc02d',{target:'origin', above:'rgba(255,138,128,.18)', below:'rgba(200,230,201,.18)'}),
         mkLine(L,'#d32f2f'),
         mkLine(S,'#2e7d32'),
         mkLine(P,'#212121'),
@@ -265,15 +267,15 @@ function drawChart (tsArr, T, L, S, P) {
     },
     options:{
       responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{ bottom:42, right:60 } },
+      layout:{padding:{bottom:42, right:60}},
       plugins:{
-        legend:{ display:false },
-        tooltip:{ callbacks:{ label:c=>' '+c.parsed.y.toLocaleString('zh-TW') } },
-        datalabels:{ display:false }
+        legend:{display:false},
+        tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
+        datalabels:{display:false}
       },
       scales:{
-        x:{ type:'linear', min:0, max:25.999, grid:{display:false}, ticks:{display:false} },
-        y:{ ticks:{ callback:v=> v.toLocaleString('zh-TW') } }
+        x:{type:'linear', min:0, max:25.999, grid:{display:false}, ticks:{display:false}},
+        y:{ticks:{callback:v=> v.toLocaleString('zh-TW')}}
       }
     },
     plugins:[stripe, mmLabel, ChartDataLabels]
@@ -281,6 +283,6 @@ function drawChart (tsArr, T, L, S, P) {
 }
 
 /* ---------- 工具 ---------- */
-const fmt   = n => typeof n==='number' ? n.toLocaleString('zh-TW', {maximumFractionDigits:2}) : n;
+const fmt = n => typeof n==='number' ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : n;
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
-function flash (el){ el.classList.add('flash'); setTimeout(()=> el.classList.remove('flash'),600); }
+function flash(el){ el.classList.add('flash'); setTimeout(()=> el.classList.remove('flash'),600); }
