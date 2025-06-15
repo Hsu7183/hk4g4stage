@@ -54,7 +54,8 @@ function analyse(raw) {
     cum += gain; cumSlip += gainSlip;
     pos.side === 'L' ? cumL += gain : cumS += gain;
 
-    tr.push({ pos, tsOut: ts, priceOut: price, actOut: act, pts, fee, tax, gain, cum, gainSlip, cumSlip });
+    tr.push({ pos, tsOut: ts, priceOut: price, actOut: act, pts, fee, tax,
+              gain, cum, gainSlip, cumSlip });
 
     dates.push(ts);
     tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
@@ -70,14 +71,16 @@ function analyse(raw) {
 function renderTable(list) {
   const body = tbl.querySelector('tbody'); body.innerHTML = '';
   list.forEach((t, i) => {
-    body.insertAdjacentHTML('beforeend', `
-      <tr><td rowspan="2">${i + 1}</td>
+    body.insertAdjacentHTML(
+      'beforeend',
+      `<tr><td rowspan="2">${i + 1}</td>
           <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td><td>${t.pos.typeIn}</td>
           <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
-      <tr><td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td><td>${t.actOut}</td>
+       <tr><td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td><td>${t.actOut}</td>
           <td>${fmt(t.pts)}</td><td>${fmt(t.fee)}</td><td>${fmt(t.tax)}</td>
           <td>${fmt(t.gain)}</td><td>${fmt(t.cum)}</td>
-          <td>${fmt(t.gainSlip)}</td><td>${fmt(t.cumSlip)}</td></tr>`);
+          <td>${fmt(t.gainSlip)}</td><td>${fmt(t.cumSlip)}</td></tr>`
+    );
   });
   tbl.hidden = false;
 }
@@ -87,7 +90,7 @@ let chart;
 function drawChart(dateArr, T, L, S, P) {
   if (chart) chart.destroy();
 
-  /* 26 個月份（資料前後各+1月） */
+  /* 26 個月份（資料前後各 +1 月） */
   const ym2Date = ym => new Date(+ym.slice(0, 4), +ym.slice(4, 6) - 1);
   const addM = (d, n) => new Date(d.getFullYear(), d.getMonth() + n);
   const toYM = d => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -97,18 +100,17 @@ function drawChart(dateArr, T, L, S, P) {
   for (let d = start; months.length < 26; d = addM(d, 1)) months.push(toYM(d));
   const monthIdx = {}; months.forEach((m, i) => monthIdx[m.replace('/', '')] = i);
 
-  /* X = 月序 + 日比例 */
+  /* X = 月序 + 當月日數比例 */
   const X = dateArr.map(ts => {
     const y = +ts.slice(0, 4), m = +ts.slice(4, 6), d = +ts.slice(6, 8);
-    const key = ts.slice(0, 6);
     const daysInMonth = new Date(y, m, 0).getDate();
-    return monthIdx[key] + (d - 0.5) / daysInMonth;
+    return monthIdx[ts.slice(0, 6)] + (d - 0.5) / daysInMonth;
   });
 
   const maxI = T.indexOf(Math.max(...T));
   const minI = T.indexOf(Math.min(...T));
 
-  /* 背景條 & 月份文字 */
+  /* 背景條 & 月文字 */
   const stripe = { id: 'stripe', beforeDraw(c) {
       const { ctx, chartArea: { left, right, top, bottom } } = c;
       const w = (right - left) / 26;
@@ -122,58 +124,41 @@ function drawChart(dateArr, T, L, S, P) {
   const mmLabel = { id: 'mmLabel', afterDraw(c) {
       const { ctx, chartArea: { left, right, bottom } } = c;
       const w = (right - left) / 26;
-      ctx.save();
-      ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#555';
+      ctx.save(); ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+      ctx.textBaseline = 'top'; ctx.fillStyle = '#555';
       months.forEach((m, i) => ctx.fillText(m, left + w * (i + .5), bottom + 8));
       ctx.restore();
     } };
 
-  /* Dataset factory */
+  /* 工廠函式 */
   const mkLine = (d, col, fill = false) => ({
-    data: d,
-    stepped: true,                     // 階梯
-    borderColor: col,
-    borderWidth: 2,
-    pointRadius: 4,
-    pointBackgroundColor: col,
-    pointBorderColor: col,
-    pointBorderWidth: 1,
-    fill
+    data: d, stepped: true, borderColor: col, borderWidth: 2,
+    pointRadius: 4, pointBackgroundColor: col, pointBorderColor: col, pointBorderWidth: 1, fill
   });
   const mkLast = (d, col) => ({
     data: d.map((v, i) => i === d.length - 1 ? v : null),
-    showLine: false,
-    pointRadius: 6,
-    pointBackgroundColor: col,
-    pointBorderColor: col,
-    pointBorderWidth: 1,
+    showLine: false, pointRadius: 6,
+    pointBackgroundColor: col, pointBorderColor: col, pointBorderWidth: 1,
     datalabels: {
       display: true,
-      anchor: 'center',                // ← 永遠以點為中心
-      align: 'left',                   // ← 向右
+      anchor: 'center',      // 以點中心
+      align: 'right',        // 往右
       offset: 6,
       formatter: v => v?.toLocaleString('zh-TW') ?? '',
-      clip: false,
-      color: '#000',
-      font: { size: 10 }
+      clip: false, color: '#000', font: { size: 10 }
     }
   });
   const mkMark = (d, i, col) => ({
     data: d.map((v, j) => j === i ? v : null),
-    showLine: false,
-    pointRadius: 6,
-    pointBackgroundColor: col,
-    pointBorderColor: col,
-    pointBorderWidth: 1,
+    showLine: false, pointRadius: 6,
+    pointBackgroundColor: col, pointBorderColor: col, pointBorderWidth: 1,
     datalabels: {
       display: true,
       anchor: i === maxI ? 'end' : 'start',
       align: i === maxI ? 'top' : 'bottom',
       offset: 8,
       formatter: v => v?.toLocaleString('zh-TW') ?? '',
-      clip: false,
-      color: '#000',
-      font: { size: 10 }
+      clip: false, color: '#000', font: { size: 10 }
     }
   });
 
@@ -198,8 +183,7 @@ function drawChart(dateArr, T, L, S, P) {
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       layout: { padding: { bottom: 42 } },
       plugins: {
         legend: { display: false },
