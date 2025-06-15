@@ -1,6 +1,6 @@
 :root{
   --bg:#f3f4f6;
-  --card:#ffffff;
+  --card:#fff;
   --border:#e0e0e0;
   --primary:#1976d2;
   --primary-dark:#155ca8;
@@ -23,11 +23,7 @@ header{
   max-width:1200px;
   margin:auto;
 }
-h1{
-  flex:1 1 250px;
-  margin:0;
-  font-size:1.6rem;
-}
+h1{flex:1 1 250px;margin:0;font-size:1.6rem}
 .btn-group{display:flex;gap:.6rem}
 .btn{
   display:inline-flex;
@@ -92,7 +88,6 @@ tbody tr:nth-child(even){background:#fafafa}
 tbody tr:hover{background:#f1f5ff}
 tbody td:empty::before{content:"—";color:#bbb}
 
-/* ---------- RWD ---------- */
 @media(max-width:1240px){table{overflow-x:auto;display:block}}
 @media(max-width:600px){
   th,td{font-size:.72rem}
