@@ -27,8 +27,7 @@ document.getElementById('fileInput').onchange = e => {
 
 /* ---------- 主分析 ---------- */
 function analyse(raw) {
-  const rows = raw.trim().split(/\r?\n/);
-  if (!rows.length) { alert('空檔案'); return; }
+  const rows = raw.trim().split(/\r?\n/); if (!rows.length) { alert('空檔案'); return; }
 
   const q = [], tr = [];
   const dates = [], tot = [], lon = [], sho = [], sli = [];
@@ -88,7 +87,7 @@ let chart;
 function drawChart(dateArr, T, L, S, P) {
   if (chart) chart.destroy();
 
-  /* === 1. 先建立 26 個月的區塊 === */
+  /* 26 個月份（資料前後各+1月） */
   const ym2Date = ym => new Date(+ym.slice(0, 4), +ym.slice(4, 6) - 1);
   const addM = (d, n) => new Date(d.getFullYear(), d.getMonth() + n);
   const toYM = d => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -98,49 +97,41 @@ function drawChart(dateArr, T, L, S, P) {
   for (let d = start; months.length < 26; d = addM(d, 1)) months.push(toYM(d));
   const monthIdx = {}; months.forEach((m, i) => monthIdx[m.replace('/', '')] = i);
 
-  /* === 2. 生成 X 軸：月序 + 日比例 === */
+  /* X = 月序 + 日比例 */
   const X = dateArr.map(ts => {
-    const y = +ts.slice(0, 4);
-    const m = +ts.slice(4, 6);
-    const d = +ts.slice(6, 8);
-    const key = ts.slice(0, 6);                    // 202503
+    const y = +ts.slice(0, 4), m = +ts.slice(4, 6), d = +ts.slice(6, 8);
+    const key = ts.slice(0, 6);
     const daysInMonth = new Date(y, m, 0).getDate();
-    const frac = (d - 0.5) / daysInMonth;          // 0 ~ 1
-    return monthIdx[key] + frac;
+    return monthIdx[key] + (d - 0.5) / daysInMonth;
   });
 
   const maxI = T.indexOf(Math.max(...T));
   const minI = T.indexOf(Math.min(...T));
 
-  /* ---------- 背景條與月份文字 ---------- */
+  /* 背景條 & 月份文字 */
   const stripe = { id: 'stripe', beforeDraw(c) {
-      const { ctx, chartArea: { left, right, top, bottom } } = c,
-            w = (right - left) / 26;
+      const { ctx, chartArea: { left, right, top, bottom } } = c;
+      const w = (right - left) / 26;
       ctx.save();
       months.forEach((_, i) => {
         ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.05)' : 'transparent';
         ctx.fillRect(left + i * w, top, w, bottom - top);
       });
       ctx.restore();
-    }
-  };
+    } };
   const mmLabel = { id: 'mmLabel', afterDraw(c) {
-      const { ctx, chartArea: { left, right, bottom } } = c,
-            w = (right - left) / 26;
+      const { ctx, chartArea: { left, right, bottom } } = c;
+      const w = (right - left) / 26;
       ctx.save();
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = '#555';
+      ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = '#555';
       months.forEach((m, i) => ctx.fillText(m, left + w * (i + .5), bottom + 8));
       ctx.restore();
-    }
-  };
+    } };
 
-  /* ---------- Dataset 工廠 ---------- */
+  /* Dataset factory */
   const mkLine = (d, col, fill = false) => ({
     data: d,
-    stepped: true,                                  // ★ 階梯
+    stepped: true,                     // 階梯
     borderColor: col,
     borderWidth: 2,
     pointRadius: 4,
@@ -158,8 +149,8 @@ function drawChart(dateArr, T, L, S, P) {
     pointBorderWidth: 1,
     datalabels: {
       display: true,
-      anchor: 'start',
-      align: 'left',
+      anchor: 'center',                // ← 永遠以點為中心
+      align: 'left',                   // ← 向右
       offset: 6,
       formatter: v => v?.toLocaleString('zh-TW') ?? '',
       clip: false,
@@ -186,7 +177,6 @@ function drawChart(dateArr, T, L, S, P) {
     }
   });
 
-  /* ---------- Chart.js ---------- */
   chart = new Chart(cvs, {
     type: 'line',
     data: {
