@@ -1,5 +1,5 @@
 /* ===== 參數 ===== */
-const MULT=200, FEE=45, TAX=0.00004, SLIP=1.5;
+const MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
 const ENTRY=['新買','新賣'],
       EXIT_L=['平賣','強制平倉'],
       EXIT_S=['平買','強制平倉'];
@@ -7,7 +7,7 @@ const ENTRY=['新買','新賣'],
 const cvs=document.getElementById('equityChart');
 const tbl=document.getElementById('tbl');
 
-/* ========== 讀取檔案 / 剪貼簿 ========= */
+/* ---------- 讀取剪貼簿 / 檔案 ---------- */
 document.getElementById('btn-clip').onclick=async e=>{
   try{ analyse(await navigator.clipboard.readText()); flash(e.target); }
   catch(err){ alert(err.message); }
@@ -15,19 +15,19 @@ document.getElementById('btn-clip').onclick=async e=>{
 document.getElementById('fileInput').onchange=e=>{
   const f=e.target.files[0]; if(!f) return;
   const read=enc=>new Promise((ok,no)=>{const r=new FileReader();
-    r.onload=()=>ok(r.result); r.onerror=()=>no(r.error);
+    r.onload=()=>ok(r.result);r.onerror=()=>no(r.error);
     enc?r.readAsText(f,enc):r.readAsText(f);});
   (async()=>{try{analyse(await read('big5'));}catch{analyse(await read());}
     flash(e.target.parentElement);})();
 };
 
-/* ========== 主分析 ========= */
+/* ---------- 主分析 ---------- */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/);
   if(!rows.length){alert('空檔案');return;}
 
-  const q=[], tr=[];
-  const ymSeq=[], tot=[], lon=[], sho=[], sli=[];
+  const q=[],tr=[];
+  const ymSeq=[],tot=[],lon=[],sho=[],sli=[];
   let cum=0,cumL=0,cumS=0,cumSlip=0;
 
   rows.forEach(r=>{
@@ -62,7 +62,7 @@ function analyse(raw){
   drawChart(ymSeq,tot,lon,sho,sli);
 }
 
-/* ========== 表格 ========= */
+/* ---------- 表格 ---------- */
 function renderTable(list){
   const body=tbl.querySelector('tbody'); body.innerHTML='';
   list.forEach((t,i)=>{
@@ -78,12 +78,12 @@ function renderTable(list){
   tbl.hidden=false;
 }
 
-/* ========== 畫圖 ========= */
+/* ---------- 畫圖 ---------- */
 let chart;
 function drawChart(ymArr,T,L,S,P){
   if(chart) chart.destroy();
 
-  /* -- 26 個月份（前後各 +1 月） -- */
+  /* 26 個月份（資料前後各 +1 月） */
   const ym2Date=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
   const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
   const toYM=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -102,7 +102,7 @@ function drawChart(ymArr,T,L,S,P){
   const maxI=T.indexOf(Math.max(...T));
   const minI=T.indexOf(Math.min(...T));
 
-  /* 背景條 */
+  /* 背景黑白條 */
   const stripe={id:'stripe',beforeDraw(c){
     const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
     ctx.save();
@@ -112,7 +112,7 @@ function drawChart(ymArr,T,L,S,P){
     });
     ctx.restore();
   }};
-  /* 月份標籤 */
+  /* 月份文字 */
   const mmLabel={id:'mmLabel',afterDraw(c){
     const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
     ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
@@ -120,15 +120,24 @@ function drawChart(ymArr,T,L,S,P){
     ctx.restore();
   }};
 
-  /* 線條樣板 */
+  /* === 點樣式調整：空心圓（白底＋彩色外框） === */
   const mkLine=(d,col)=>({
-    data:d,borderColor:col,borderWidth:2,stepped:true,
-    pointRadius:4,pointBackgroundColor:col,pointBorderColor:col,fill:false,
+    data:d,stepped:true,
+    borderColor:col,borderWidth:2,fill:false,
+    pointRadius:4,
+    pointBackgroundColor:'#fff',
+    pointBorderColor:col,
+    pointBorderWidth:2,
     datalabels:{display:false}
   });
+  /* 大小跟標籤保持—最後點仍為實心 */
   const mkLast=(d,col)=>({
     data:d.map((v,i)=>i===d.length-1?v:null),
-    showLine:false,pointRadius:6,pointBackgroundColor:col,
+    showLine:false,
+    pointRadius:6,
+    pointBackgroundColor:col,
+    pointBorderColor:col,
+    pointBorderWidth:2,
     datalabels:{
       display:true,anchor:'start',align:'left',offset:6,
       formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}
@@ -136,7 +145,11 @@ function drawChart(ymArr,T,L,S,P){
   });
   const mkMark=(d,i,col)=>({
     data:d.map((v,j)=>j===i?v:null),
-    showLine:false,pointRadius:6,pointBackgroundColor:col,
+    showLine:false,
+    pointRadius:6,
+    pointBackgroundColor:col,
+    pointBorderColor:col,
+    pointBorderWidth:2,
     datalabels:{
       display:true,
       anchor:i===maxI?'end':'start',
@@ -159,8 +172,7 @@ function drawChart(ymArr,T,L,S,P){
       ]
     },
     options:{
-      responsive:true,
-      maintainAspectRatio:false,
+      responsive:true,maintainAspectRatio:false,
       layout:{padding:{bottom:42}},
       plugins:{
         legend:{display:false},
@@ -176,7 +188,7 @@ function drawChart(ymArr,T,L,S,P){
   });
 }
 
-/* ========== 工具 ========= */
-const fmt = n=>n.toLocaleString('zh-TW');
+/* ---------- 工具 ---------- */
+const fmt=n=>n.toLocaleString('zh-TW');
 function fmtTs(s){return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;}
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
