@@ -8,6 +8,7 @@ html,body{margin:0;background:var(--bg);
 header{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;
   padding:1.2rem 1rem 0;max-width:1200px;margin:auto}
 h1{flex:1 1 250px;margin:0;font-size:1.6rem}
+
 .btn-group{display:flex;gap:.6rem}
 .btn{display:inline-flex;align-items:center;padding:.6rem 1.1rem;
   border:0;border-radius:.35rem;font-size:.88rem;cursor:pointer}
