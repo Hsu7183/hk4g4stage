@@ -179,7 +179,7 @@ function drawChart(ymSeq,T,L,S,P){
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
       }
     },
-    plugins:[stripe,mmLabel,ChartDataLabels]
+    plugins:[ChartDataLabels]
   });
 }
 
