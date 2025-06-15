@@ -1,18 +1,23 @@
-:root{--bg:#f3f4f6;--card:#fff;--border:#e0e0e0;
- --primary:#1976d2;--primary-dark:#155ca8}
+:root{
+  --bg:#f3f4f6; --card:#fff; --border:#e0e0e0;
+  --primary:#1976d2; --primary-dark:#155ca8;
+}
+
 html,body{margin:0;background:var(--bg);
   font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
 
 header{display:flex;flex-wrap:wrap;align-items:center;gap:1rem;
   padding:1.2rem 1rem 0;max-width:1200px;margin:auto}
+
 h1{flex:1 1 250px;margin:0;font-size:1.6rem}
+
 .btn-group{display:flex;gap:.6rem}
 .btn{display:inline-flex;align-items:center;padding:.6rem 1.1rem;border:0;
   border-radius:.35rem;font-size:.88rem;cursor:pointer}
 .btn.primary{background:var(--primary);color:#fff}
 .btn.primary:hover{background:var(--primary-dark)}
-.flash{animation:flash .6s}@keyframes flash{0%{filter:brightness(1)}
- 50%{filter:brightness(2)}100%{filter:brightness(1)}}
+.flash{animation:flash .6s}
+@keyframes flash{0%{filter:brightness(1)}50%{filter:brightness(2)}100%{filter:brightness(1)}}
 
 .chart-wrap{max-width:1200px;margin:1rem auto}
 .chart-wrap canvas{width:100%!important;height:400px!important;background:var(--card);
