@@ -1,200 +1,351 @@
 /* ===== 參數 ===== */
-const MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
-const ENTRY=['新買','新賣'],
-      EXIT_L=['平賣','強制平倉'],
-      EXIT_S=['平買','強制平倉'];
+const MULT = 200,
+      FEE  = 45,
+      TAX  = 0.00004,
+      SLIP = 1.5;
 
-const cvs=document.getElementById('equityChart');
-const tbl=document.getElementById('tbl');
+const ENTRY   = ['新買', '新賣'],
+      EXIT_L  = ['平賣', '強制平倉'],   // 多單出場/強平
+      EXIT_S  = ['平買', '強制平倉'];   // 空單出場/強平
 
-/* ---------- 讀取剪貼簿 / 檔案 ---------- */
-document.getElementById('btn-clip').onclick=async e=>{
-  try{ analyse(await navigator.clipboard.readText()); flash(e.target); }
-  catch(err){ alert(err.message); }
+const cvs = document.getElementById('equityChart');
+const tbl = document.getElementById('tbl');
+
+/* ---------------- 讀取剪貼簿 / 檔案 ---------------- */
+
+document.getElementById('btn-clip').onclick = async e => {
+  try {
+    analyse(await navigator.clipboard.readText());
+    flash(e.target);
+  } catch (err) {
+    alert(err.message);
+  }
 };
-document.getElementById('fileInput').onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const read=enc=>new Promise((ok,no)=>{
-    const r=new FileReader();
-    r.onload=()=>ok(r.result);r.onerror=()=>no(r.error);
-    enc?r.readAsText(f,enc):r.readAsText(f);
+
+document.getElementById('fileInput').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+
+  const read = enc => new Promise((ok, no) => {
+    const r = new FileReader();
+    r.onload  = () => ok(r.result);
+    r.onerror = () => no(r.error);
+    enc ? r.readAsText(f, enc) : r.readAsText(f);
   });
-  (async()=>{
-    try{ analyse(await read('big5')); }catch{ analyse(await read()); }
+
+  (async () => {
+    try {
+      analyse(await read('big5'));          // 先嘗試 Big5
+    } catch {
+      analyse(await read());                // 不行再用預設編碼
+    }
     flash(e.target.parentElement);
   })();
 };
 
-/* ---------- 主分析 ---------- */
-function analyse(raw){
-  const rows=raw.trim().split(/\r?\n/);
-  if(!rows.length){alert('空檔案');return;}
+/* ---------------- 主分析 ---------------- */
 
-  const q=[],tr=[];
-  const ymSeq=[],tot=[],lon=[],sho=[],sli=[];
-  let cum=0,cumL=0,cumS=0,cumSlip=0;
+function analyse (raw) {
+  const rows = raw.trim().split(/\r?\n/);
+  if (!rows.length) {
+    alert('空檔案');
+    return;
+  }
 
-  rows.forEach(r=>{
-    const [tsRaw,pStr,act]=r.trim().split(/\s+/); if(!act) return;
-    const price=+pStr;
+  /* 解析交易 ──── */
+  const q  = [];          // 尚未平倉的部位佇列
+  const tr = [];          // 完整配對後的交易
 
-    if(ENTRY.includes(act)){
-      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
+  const tot = [],         // 總損益
+        lon = [],         // 多單損益
+        sho = [],         // 空單損益
+        sli = [];         // 含滑價損益
+  const tsArr = [];       // 交易時間字串（用於判斷季度）
+
+  let cum      = 0,       // 累積總損益
+      cumL     = 0,       // 累積多單損益
+      cumS     = 0,       // 累積空單損益
+      cumSlip  = 0;       // 累積含滑價損益
+
+  rows.forEach(r => {
+    const [tsRaw, priceStr, act] = r.trim().split(/\s+/);
+    if (!act) return;                     // 資料缺漏
+
+    const price = +priceStr;
+
+    /* 進場 */
+    if (ENTRY.includes(act)) {
+      q.push({
+        side   : act === '新買' ? 'L' : 'S',
+        pIn    : price,
+        tsIn   : tsRaw,
+        typeIn : act
+      });
       return;
     }
-    const idx=q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));
-    if(idx===-1) return;
-    const pos=q.splice(idx,1)[0];
 
-    const pts=pos.side==='L'?price-pos.pIn:pos.pIn-price;
-    const fee=FEE*2, tax=Math.round(price*MULT*TAX);
-    const gain=pts*MULT-fee-tax, gainSlip=gain-SLIP*MULT;
+    /* 出場（找第一筆符合方向的未平倉部位） */
+    const idx = q.findIndex(o => (o.side === 'L' && EXIT_L.includes(act)) ||
+                                  (o.side === 'S' && EXIT_S.includes(act)));
+    if (idx === -1) return;               // 找不到對應倉位
 
-    cum+=gain; cumSlip+=gainSlip;
-    pos.side==='L'?cumL+=gain:cumS+=gain;
+    const pos = q.splice(idx, 1)[0];      // 取出並移除
 
-    tr.push({pos,tsOut:tsRaw,priceOut:price,actOut:act,
-      pts,fee,tax,gain,cum,gainSlip,cumSlip});
+    const pts  = pos.side === 'L' ? price - pos.pIn : pos.pIn - price;
+    const fee  = FEE * 2;                 // 進 + 出
+    const tax  = Math.round(price * MULT * TAX);
 
-    ymSeq.push(tsRaw.slice(0,6));
-    tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
+    const gain     = pts * MULT - fee - tax;
+    const gainSlip = gain - SLIP * MULT;
+
+    cum     += gain;
+    cumSlip += gainSlip;
+    pos.side === 'L' ? (cumL += gain) : (cumS += gain);
+
+    tr.push({
+      pos,
+      tsOut   : tsRaw,
+      priceOut: price,
+      actOut  : act,
+      pts,
+      fee,
+      tax,
+      gain,
+      cum,
+      gainSlip,
+      cumSlip
+    });
+
+    tot.push(cum);
+    lon.push(cumL);
+    sho.push(cumS);
+    sli.push(cumSlip);
+    tsArr.push(tsRaw);
   });
 
-  if(!tr.length){alert('沒有成功配對的交易');return;}
+  if (!tr.length) {
+    alert('沒有成功配對的交易');
+    return;
+  }
 
   renderTable(tr);
-  drawChart(ymSeq,tot,lon,sho,sli);
+  drawChart(tsArr, tot, lon, sho, sli);
 }
 
-/* ---------- 表格 ---------- */
-function renderTable(list){
-  const body=tbl.querySelector('tbody'); body.innerHTML='';
-  list.forEach((t,i)=>{
-    body.insertAdjacentHTML('beforeend',`
-      <tr><td rowspan="2">${i+1}</td>
-          <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td><td>${t.pos.typeIn}</td>
-          <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
-      <tr><td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td><td>${t.actOut}</td>
-          <td>${fmt(t.pts)}</td><td>${fmt(t.fee)}</td><td>${fmt(t.tax)}</td>
-          <td>${fmt(t.gain)}</td><td>${fmt(t.cum)}</td>
-          <td>${fmt(t.gainSlip)}</td><td>${fmt(t.cumSlip)}</td></tr>`);
+/* ---------------- 表格 ---------------- */
+
+function renderTable (list) {
+  const body = tbl.querySelector('tbody');
+  body.innerHTML = '';
+
+  list.forEach((t, i) => {
+    body.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td rowspan="2">${i + 1}</td>
+        <td>${fmtTs(t.pos.tsIn)}</td>
+        <td>${t.pos.pIn}</td>
+        <td>${t.pos.typeIn}</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+      </tr>
+      <tr>
+        <td>${fmtTs(t.tsOut)}</td>
+        <td>${t.priceOut}</td>
+        <td>${t.actOut}</td>
+        <td>${fmt(t.pts)}</td>
+        <td>${fmt(t.fee)}</td>
+        <td>${fmt(t.tax)}</td>
+        <td>${fmt(t.gain)}</td>
+        <td>${fmt(t.cum)}</td>
+        <td>${fmt(t.gainSlip)}</td>
+        <td>${fmt(t.cumSlip)}</td>
+      </tr>`);
   });
-  tbl.hidden=false;
+
+  tbl.hidden = false;
 }
 
-/* ---------- 畫圖 ---------- */
+/* ---------------- 畫圖 ---------------- */
+
 let chart;
-function drawChart(ymArr,T,L,S,P){
-  if(chart) chart.destroy();
 
-  /* 26 個月份（資料前後各 +1 月） */
-  const ym2Date=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
-  const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
-  const toYM=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+function drawChart (tsArr, T, L, S, P) {
+  if (chart) chart.destroy();
 
-  const start=addM(ym2Date(ymArr[0]),-1);
-  const months=[]; for(let d=start;months.length<26;d=addM(d,1)) months.push(toYM(d));
-  const monthIdx={}; months.forEach((m,i)=>monthIdx[m.replace('/','')]=i);
+  /* === X 軸：逐筆交易序號（從 1 開始） === */
+  const X = T.map((_, i) => i + 1);
 
-  /* 每筆一點：月序 + 0.001*流水號 */
-  const dup={}, X=[];
-  ymArr.forEach(m=>{
-    dup[m]=(dup[m]??0)+1;
-    X.push(monthIdx[m]+dup[m]*0.001);
-  });
+  /* === 算出每季的起訖索引 === */
+  const getQuarter = s => {
+    const y = s.slice(0, 4),
+          m = +s.slice(4, 6);
+    return `${y}Q${Math.floor((m - 1) / 3) + 1}`;
+  };
 
-  const maxI=T.indexOf(Math.max(...T));
-  const minI=T.indexOf(Math.min(...T));
+  const quarters = [];
+  let curQ   = getQuarter(tsArr[0]);
+  let startI = 0;
 
-  /* 背景黑白條 */
-  const stripe={id:'stripe',beforeDraw(c){
-    const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
-    ctx.save();
-    months.forEach((_,i)=>{
-      ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
-      ctx.fillRect(left+i*w,top,w,bottom-top);
-    });
-    ctx.restore();
-  }};
-  /* 月份文字 */
-  const mmLabel={id:'mmLabel',afterDraw(c){
-    const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
-    ctx.save();
-    ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
-    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));
-    ctx.restore();
-  }};
-
-  /* 線與點樣式（#12 實心彩色圓） */
-  const mkLine=(d,col,fill=false)=>({
-    data:d,stepped:true,
-    borderColor:col,borderWidth:2,
-    pointRadius:4,pointBackgroundColor:col,pointBorderColor:col,
-    pointBorderWidth:1,fill
-  });
-  const mkLast=(d,col)=>({
-    data:d.map((v,i)=>i===d.length-1?v:null),
-    showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
-    datalabels:{
-      display:true,anchor:'start',align:'left',offset:6,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}
+  tsArr.forEach((ts, i) => {
+    const q = getQuarter(ts);
+    if (q !== curQ) {
+      quarters.push({ label: curQ, start: startI, end: i - 1 });
+      curQ   = q;
+      startI = i;
     }
   });
-  const mkMark=(d,i,col)=>({
-    data:d.map((v,j)=>j===i?v:null),
-    showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
-    datalabels:{
-      display:true,
-      anchor:i===maxI?'end':'start',
-      align:i===maxI?'top':'bottom',
-      offset:8,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}
+  quarters.push({ label: curQ, start: startI, end: tsArr.length - 1 });
+
+  /* === 背景季條 === */
+  const stripe = {
+    id: 'stripe',
+    beforeDraw (c) {
+      const { ctx, chartArea: { top, bottom } } = c;
+      const xScale = c.scales.x;
+      ctx.save();
+      quarters.forEach((q, i) => {
+        const x1 = xScale.getPixelForValue(q.start + 0.5),   // 0.5 → 柱中心
+              x2 = xScale.getPixelForValue(q.end + 1.5);
+        ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.05)' : 'transparent';
+        ctx.fillRect(x1, top, x2 - x1, bottom - top);
+      });
+      ctx.restore();
+    }
+  };
+
+  /* === 季度標籤 === */
+  const qLabel = {
+    id: 'qLabel',
+    afterDraw (c) {
+      const { ctx, chartArea: { bottom } } = c;
+      const xScale = c.scales.x;
+      ctx.save();
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#555';
+      quarters.forEach(q => {
+        const mid = (q.start + q.end + 2) / 2;   // +2 因 X 從 1 起算
+        const x   = xScale.getPixelForValue(mid);
+        ctx.fillText(q.label, x, bottom + 8);
+      });
+      ctx.restore();
+    }
+  };
+
+  /* === 資料集工廠 === */
+  const mkLine = (d, col) => ({
+    data        : d,
+    stepped     : true,
+    borderColor : col,
+    borderWidth : 2,
+    pointRadius : 4,
+    pointBackgroundColor: col,
+    pointBorderColor   : col,
+    pointBorderWidth   : 1,
+    fill        : false
+  });
+
+  const mkLast = (d, col) => ({
+    data: d.map((v, i) => (i === d.length - 1 ? v : null)),
+    showLine: false,
+    pointRadius: 6,
+    pointBackgroundColor: col,
+    pointBorderColor: col,
+    pointBorderWidth: 1,
+    datalabels: {
+      display   : true,
+      anchor    : 'start',   // 文字在右側
+      align     : 'left',
+      offset    : 6,
+      formatter : v => v?.toLocaleString('zh-TW') ?? '',
+      color     : '#000',
+      clip      : false,
+      font      : { size: 10 }
     }
   });
 
-  chart=new Chart(cvs,{
-    type:'line',
-    data:{
-      labels:X,
-      datasets:[
-        /* --- 總線（含 #6 區域色塊） --- */
-        mkLine(T,'#fbc02d',{
-          target:'origin',
-          above:'rgba(255,138,128,.18)',   /* >0 red tint */
-          below:'rgba(200,230,201,.18)'    /* <0 green tint */
-        }),
-        mkLine(L,'#d32f2f'),
-        mkLine(S,'#2e7d32'),
-        mkLine(P,'#212121'),
+  const maxI = T.indexOf(Math.max(...T));
+  const minI = T.indexOf(Math.min(...T));
+  const mkMark = (d, idx, col) => ({
+    data: d.map((v, i) => (i === idx ? v : null)),
+    showLine: false,
+    pointRadius: 6,
+    pointBackgroundColor: col,
+    pointBorderColor: col,
+    pointBorderWidth: 1,
+    datalabels: {
+      display   : true,
+      anchor    : idx === maxI ? 'end' : 'start',
+      align     : idx === maxI ? 'top' : 'bottom',
+      offset    : 8,
+      formatter : v => v?.toLocaleString('zh-TW') ?? '',
+      color     : '#000',
+      clip      : false,
+      font      : { size: 10 }
+    }
+  });
 
-        mkLast(T,'#fbc02d'),mkLast(L,'#d32f2f'),
-        mkLast(S,'#2e7d32'),mkLast(P,'#212121'),
+  /* === 建立圖表 === */
+  chart = new Chart(cvs, {
+    type: 'line',
+    data: {
+      labels: X,
+      datasets: [
+        mkLine(T, '#fbc02d'),
+        mkLine(L, '#d32f2f'),
+        mkLine(S, '#2e7d32'),
+        mkLine(P, '#212121'),
 
-        mkMark(T,maxI,'#d32f2f'),
-        mkMark(T,minI,'#2e7d32')
+        mkLast(T, '#fbc02d'),
+        mkLast(L, '#d32f2f'),
+        mkLast(S, '#2e7d32'),
+        mkLast(P, '#212121'),
+
+        mkMark(T, maxI, '#d32f2f'),
+        mkMark(T, minI, '#2e7d32')
       ]
     },
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      layout:{padding:{bottom:42}},          /* #15 給月份字露出 */
-      plugins:{
-        legend:{display:false},
-        tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
-        datalabels:{display:false}           /* 其餘數值不顯示 (#9) */
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { bottom: 42, right: 60 } },  // 右側留白給數值
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: c => ' ' + c.parsed.y.toLocaleString('zh-TW')
+          }
+        },
+        datalabels: { display: false }
       },
-      scales:{
-        x:{type:'linear',min:0,max:25.999,
-           grid:{display:false},ticks:{display:false}},
-        y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
+      scales: {
+        x: {
+          type: 'linear',
+          min : 1,
+          max : X.length + 1,
+          grid: { display: false },
+          ticks: { display: false }
+        },
+        y: {
+          ticks: {
+            callback: v => v.toLocaleString('zh-TW')
+          }
+        }
       }
     },
-    plugins:[stripe,mmLabel,ChartDataLabels]
+    plugins: [stripe, qLabel, ChartDataLabels]
   });
 }
 
-/* ---------- 工具 ---------- */
-const fmt=n=>n.toLocaleString('zh-TW');
-function fmtTs(s){return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;}
-function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
+/* ---------------- 工具 ---------------- */
+
+const fmt = n => n.toLocaleString('zh-TW');
+
+function fmtTs (s) {
+  return `${s.slice(0, 4)}/${s.slice(4, 6)}/${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}`;
+}
+
+function flash (el) {
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 600);
+}
