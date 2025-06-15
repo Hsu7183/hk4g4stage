@@ -31,15 +31,15 @@ function analyse(raw) {
   if (!rows.length) { alert('空檔案'); return; }
 
   const q = [], tr = [];
-  const ymSeq = [], tot = [], lon = [], sho = [], sli = [];
+  const dates = [], tot = [], lon = [], sho = [], sli = [];
   let cum = 0, cumL = 0, cumS = 0, cumSlip = 0;
 
   rows.forEach(r => {
-    const [tsRaw, pStr, act] = r.trim().split(/\s+/); if (!act) return;
+    const [ts, pStr, act] = r.trim().split(/\s+/); if (!act) return;
     const price = +pStr;
 
     if (ENTRY.includes(act)) {
-      q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw, typeIn: act });
+      q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: ts, typeIn: act });
       return;
     }
     const idx = q.findIndex(o =>
@@ -55,19 +55,16 @@ function analyse(raw) {
     cum += gain; cumSlip += gainSlip;
     pos.side === 'L' ? cumL += gain : cumS += gain;
 
-    tr.push({
-      pos, tsOut: tsRaw, priceOut: price, actOut: act,
-      pts, fee, tax, gain, cum, gainSlip, cumSlip
-    });
+    tr.push({ pos, tsOut: ts, priceOut: price, actOut: act, pts, fee, tax, gain, cum, gainSlip, cumSlip });
 
-    ymSeq.push(tsRaw.slice(0, 6));
+    dates.push(ts);
     tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
   });
 
   if (!tr.length) { alert('沒有成功配對的交易'); return; }
 
   renderTable(tr);
-  drawChart(ymSeq, tot, lon, sho, sli);
+  drawChart(dates, tot, lon, sho, sli);
 }
 
 /* ---------- 表格 ---------- */
@@ -88,32 +85,35 @@ function renderTable(list) {
 
 /* ---------- 畫圖 ---------- */
 let chart;
-function drawChart(ymArr, T, L, S, P) {
+function drawChart(dateArr, T, L, S, P) {
   if (chart) chart.destroy();
 
-  /* 26 個月份（資料前後各 +1 月） */
+  /* === 1. 先建立 26 個月的區塊 === */
   const ym2Date = ym => new Date(+ym.slice(0, 4), +ym.slice(4, 6) - 1);
   const addM = (d, n) => new Date(d.getFullYear(), d.getMonth() + n);
   const toYM = d => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-  const start = addM(ym2Date(ymArr[0]), -1);
+  const start = addM(ym2Date(dateArr[0].slice(0, 6)), -1);
   const months = [];
   for (let d = start; months.length < 26; d = addM(d, 1)) months.push(toYM(d));
   const monthIdx = {}; months.forEach((m, i) => monthIdx[m.replace('/', '')] = i);
 
-  /* 每筆一點：月序 + 0.001*流水號 */
-  const dup = {}, X = [];
-  ymArr.forEach(m => {
-    dup[m] = (dup[m] ?? 0) + 1;
-    X.push(monthIdx[m] + dup[m] * 0.001);
+  /* === 2. 生成 X 軸：月序 + 日比例 === */
+  const X = dateArr.map(ts => {
+    const y = +ts.slice(0, 4);
+    const m = +ts.slice(4, 6);
+    const d = +ts.slice(6, 8);
+    const key = ts.slice(0, 6);                    // 202503
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const frac = (d - 0.5) / daysInMonth;          // 0 ~ 1
+    return monthIdx[key] + frac;
   });
 
   const maxI = T.indexOf(Math.max(...T));
   const minI = T.indexOf(Math.min(...T));
 
-  /* ---------- 背景黑白條與月份文字 ---------- */
-  const stripe = {
-    id: 'stripe', beforeDraw(c) {
+  /* ---------- 背景條與月份文字 ---------- */
+  const stripe = { id: 'stripe', beforeDraw(c) {
       const { ctx, chartArea: { left, right, top, bottom } } = c,
             w = (right - left) / 26;
       ctx.save();
@@ -124,8 +124,7 @@ function drawChart(ymArr, T, L, S, P) {
       ctx.restore();
     }
   };
-  const mmLabel = {
-    id: 'mmLabel', afterDraw(c) {
+  const mmLabel = { id: 'mmLabel', afterDraw(c) {
       const { ctx, chartArea: { left, right, bottom } } = c,
             w = (right - left) / 26;
       ctx.save();
@@ -138,10 +137,10 @@ function drawChart(ymArr, T, L, S, P) {
     }
   };
 
-  /* ---------- 線 / 點 樣式 (階梯步進 + 實心圓) ---------- */
+  /* ---------- Dataset 工廠 ---------- */
   const mkLine = (d, col, fill = false) => ({
     data: d,
-    stepped: true,                     // ★ 改為階梯步進
+    stepped: true,                                  // ★ 階梯
     borderColor: col,
     borderWidth: 2,
     pointRadius: 4,
@@ -158,9 +157,14 @@ function drawChart(ymArr, T, L, S, P) {
     pointBorderColor: col,
     pointBorderWidth: 1,
     datalabels: {
-      display: true, anchor: 'start', align: 'left', offset: 6,
+      display: true,
+      anchor: 'start',
+      align: 'left',
+      offset: 6,
       formatter: v => v?.toLocaleString('zh-TW') ?? '',
-      color: '#000', clip: false, font: { size: 10 }
+      clip: false,
+      color: '#000',
+      font: { size: 10 }
     }
   });
   const mkMark = (d, i, col) => ({
@@ -176,10 +180,13 @@ function drawChart(ymArr, T, L, S, P) {
       align: i === maxI ? 'top' : 'bottom',
       offset: 8,
       formatter: v => v?.toLocaleString('zh-TW') ?? '',
-      color: '#000', clip: false, font: { size: 10 }
+      clip: false,
+      color: '#000',
+      font: { size: 10 }
     }
   });
 
+  /* ---------- Chart.js ---------- */
   chart = new Chart(cvs, {
     type: 'line',
     data: {
@@ -187,8 +194,8 @@ function drawChart(ymArr, T, L, S, P) {
       datasets: [
         mkLine(T, '#fbc02d', {
           target: 'origin',
-          above: 'rgba(255,138,128,.18)',   /* >0 tint */
-          below: 'rgba(200,230,201,.18)'    /* <0 tint */
+          above: 'rgba(255,138,128,.18)',
+          below: 'rgba(200,230,201,.18)'
         }),
         mkLine(L, '#d32f2f'),
         mkLine(S, '#2e7d32'),
@@ -197,8 +204,7 @@ function drawChart(ymArr, T, L, S, P) {
         mkLast(T, '#fbc02d'), mkLast(L, '#d32f2f'),
         mkLast(S, '#2e7d32'), mkLast(P, '#212121'),
 
-        mkMark(T, maxI, '#d32f2f'),
-        mkMark(T, minI, '#2e7d32')
+        mkMark(T, maxI, '#d32f2f'), mkMark(T, minI, '#2e7d32')
       ]
     },
     options: {
@@ -207,29 +213,19 @@ function drawChart(ymArr, T, L, S, P) {
       layout: { padding: { bottom: 42 } },
       plugins: {
         legend: { display: false },
-        tooltip: {
-          callbacks: { label: c => ' ' + c.parsed.y.toLocaleString('zh-TW') }
-        },
+        tooltip: { callbacks: { label: c => ' ' + c.parsed.y.toLocaleString('zh-TW') } },
         datalabels: { display: false }
       },
       scales: {
-        x: {
-          type: 'linear',
-          min: 0,
-          max: 25.999,
-          grid: { display: false },
-          ticks: { display: false }
-        },
-        y: {
-          ticks: { callback: v => v.toLocaleString('zh-TW') }
-        }
+        x: { type: 'linear', grid: { display: false }, ticks: { display: false } },
+        y: { ticks: { callback: v => v.toLocaleString('zh-TW') } }
       }
     },
     plugins: [stripe, mmLabel, ChartDataLabels]
   });
 }
 
-/* ---------- 工具 ---------- */
+/* ---------- util ---------- */
 const fmt = n => n.toLocaleString('zh-TW');
 function fmtTs(s) {
   return `${s.slice(0, 4)}/${s.slice(4, 6)}/${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}`;
