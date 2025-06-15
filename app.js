@@ -1,4 +1,5 @@
-/* ========= 參數 ========= */
+/* === v2024-06-15：chart 400px / table layout fix === */
+
 const MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
 const ENTRY=['新買','新賣'],EXIT_L=['平賣','強制平倉'],EXIT_S=['平買','強制平倉'];
 
@@ -65,10 +66,7 @@ let chart;
 function drawChart(tsArr,T,L,S,P){
   if(chart)chart.destroy();
 
-  /* ---- x 座標：依日期自然順序，直接 0,1,2... ---- */
   const X=tsArr.map((_,i)=>i);
-
-  /* ---- 26 個月背景 ---- */
   const ym=s=>s.slice(0,6);
   const ymList=[...new Set(tsArr.map(ym))];
   const stripe={id:'stripe',beforeDraw(c){
@@ -79,51 +77,40 @@ function drawChart(tsArr,T,L,S,P){
   const mm={id:'mm',afterDraw(c){
     const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/ymList.length;
     ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
-    ymList.forEach((m,i)=>ctx.fillText(`${m.slice(0,4)}/${m.slice(4)}`,left+w*(i+.5),bottom+8));
-    ctx.restore();
+    ymList.forEach((m,i)=>ctx.fillText(`${m.slice(0,4)}/${m.slice(4)}`,left+w*(i+.5),bottom+8));ctx.restore();
   }};
 
   const maxI=T.indexOf(Math.max(...T)),minI=T.indexOf(Math.min(...T));
-  const mk=(d,col)=>({
-    data:d,stepped:true,borderColor:col,borderWidth:2,fill:false,
-    pointRadius:4,pointBackgroundColor:col,pointBorderColor:'#fff',pointBorderWidth:1,datalabels:{display:false}
-  });
-  const last=(d,col)=>({
-    data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:2,
-    datalabels:{display:true,anchor:'start',align:'left',offset:6,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}
-  });
-  const mark=(d,i,col)=>({
-    data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:2,
-    datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',offset:8,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}
-  });
+  const mk=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:1.5,fill:false,
+                      pointRadius:3,pointBackgroundColor:col,pointBorderWidth:0.8,pointBorderColor:'#fff',
+                      datalabels:{display:false}});
+  const last=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:5,
+                       pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:2,
+                       datalabels:{display:true,anchor:'start',align:'left',offset:6,
+                                   formatter:v=>v?.toLocaleString('zh-TW')??'',font:{size:10},clip:false}});
+  const mark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:6,
+                        pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:2,
+                        datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',offset:8,
+                                    formatter:v=>v?.toLocaleString('zh-TW')??'',font:{size:10},clip:false}});
 
   chart=new Chart(cvs,{
     type:'line',
-    data:{
-      labels:X,
+    data:{labels:X,
       datasets:[
         mk(T,'#fdd835'),mk(L,'#e53935'),mk(S,'#43a047'),mk(P,'#000'),
         last(T,'#fdd835'),last(L,'#e53935'),last(S,'#43a047'),last(P,'#000'),
-        mark(T,maxI,'#e53935'),mark(T,minI,'#43a047')
-      ]
-    },
+        mark(T,maxI,'#e53935'),mark(T,minI,'#43a047')]},
     options:{
-      responsive:true,maintainAspectRatio:false,
-      layout:{padding:{bottom:42}},
+      responsive:true,maintainAspectRatio:false,layout:{padding:{bottom:42}},
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
         datalabels:{display:false}},
       scales:{x:{grid:{display:false},ticks:{display:false}},
-              y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}}
-    },
+              y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}}},
     plugins:[stripe,mm,ChartDataLabels]
   });
 }
 
-/* ========= 小工具 ========= */
+/* ========= 工具 ========= */
 const fmt=n=>n.toLocaleString('zh-TW');
 const fmtTs=s=>`${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
