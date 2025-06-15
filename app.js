@@ -1,70 +1,74 @@
-/* =========================================================================
- *   app.js  (2024-06-15 fix)
- * =========================================================================
- * 1.  X 軸：季分隔；點依月日比例
- * 2.  點半徑 2
- * 3.  顯示最大獲利 / 最大虧損
- * 4.  四條線最後一點 + 右側數值、右側留 40px
- * -------------------------------------------------------------------------*/
-
-/* ===== 常數 ===== */
+/* ===== 參數 ===== */
 const MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
-const ENTRY=['新買','新賣'], EXIT_L=['平賣','強制平倉'], EXIT_S=['平買','強制平倉'];
+const ENTRY=['新買','新賣'],
+      EXIT_L=['平賣','強制平倉'],
+      EXIT_S=['平買','強制平倉'];
 
 const cvs=document.getElementById('equityChart');
 const tbl=document.getElementById('tbl');
 
-/* ===== 讀剪貼簿 / 選檔 ===== */
+/* ---------- 讀取剪貼簿 / 檔案 ---------- */
 document.getElementById('btn-clip').onclick=async e=>{
-  try{analyse(await navigator.clipboard.readText());flash(e.target);}catch(err){alert(err.message);}
+  try{ analyse(await navigator.clipboard.readText()); flash(e.target); }
+  catch(err){ alert(err.message); }
 };
 document.getElementById('fileInput').onchange=e=>{
-  const f=e.target.files[0];if(!f)return;
-  const read=enc=>new Promise((ok,no)=>{const r=new FileReader();
+  const f=e.target.files[0]; if(!f) return;
+  const read=enc=>new Promise((ok,no)=>{
+    const r=new FileReader();
     r.onload=()=>ok(r.result);r.onerror=()=>no(r.error);
-    enc?r.readAsText(f,enc):r.readAsText(f);});
-  (async()=>{try{analyse(await read('big5'));}catch{analyse(await read());}flash(e.target.parentElement);})();
+    enc?r.readAsText(f,enc):r.readAsText(f);
+  });
+  (async()=>{
+    try{ analyse(await read('big5')); }catch{ analyse(await read()); }
+    flash(e.target.parentElement);
+  })();
 };
 
-/* ===== 主分析 ===== */
+/* ---------- 主分析 ---------- */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/);
   if(!rows.length){alert('空檔案');return;}
 
-  const q=[],tr=[],tsArr=[],tot=[],lon=[],sho=[],sli=[];
+  const q=[],tr=[];
+  const ymSeq=[],tot=[],lon=[],sho=[],sli=[];
   let cum=0,cumL=0,cumS=0,cumSlip=0;
 
   rows.forEach(r=>{
-    const [tsRaw,pStr,act]=r.trim().split(/\s+/);if(!act)return;
+    const [tsRaw,pStr,act]=r.trim().split(/\s+/); if(!act) return;
     const price=+pStr;
 
-    if(ENTRY.includes(act)){q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});return;}
-
+    if(ENTRY.includes(act)){
+      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
+      return;
+    }
     const idx=q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));
-    if(idx===-1)return;
+    if(idx===-1) return;
     const pos=q.splice(idx,1)[0];
 
     const pts=pos.side==='L'?price-pos.pIn:pos.pIn-price;
-    const fee=FEE*2,tax=Math.round(price*MULT*TAX);
-    const gain=pts*MULT-fee-tax,gainSlip=gain-SLIP*MULT;
+    const fee=FEE*2, tax=Math.round(price*MULT*TAX);
+    const gain=pts*MULT-fee-tax, gainSlip=gain-SLIP*MULT;
 
-    cum+=gain;cumSlip+=gainSlip;
+    cum+=gain; cumSlip+=gainSlip;
     pos.side==='L'?cumL+=gain:cumS+=gain;
 
-    tr.push({pos,tsOut:tsRaw,priceOut:price,actOut:act,pts,fee,tax,gain,cum,gainSlip,cumSlip});
+    tr.push({pos,tsOut:tsRaw,priceOut:price,actOut:act,
+      pts,fee,tax,gain,cum,gainSlip,cumSlip});
 
-    tsArr.push(tsRaw);tot.push(cum);lon.push(cumL);sho.push(cumS);sli.push(cumSlip);
+    ymSeq.push(tsRaw.slice(0,6));
+    tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
   });
 
   if(!tr.length){alert('沒有成功配對的交易');return;}
 
   renderTable(tr);
-  drawChart(tsArr,tot,lon,sho,sli);
+  drawChart(ymSeq,tot,lon,sho,sli);
 }
 
-/* ===== 表格 ===== */
+/* ---------- 表格 ---------- */
 function renderTable(list){
-  const body=tbl.querySelector('tbody');body.innerHTML='';
+  const body=tbl.querySelector('tbody'); body.innerHTML='';
   list.forEach((t,i)=>{
     body.insertAdjacentHTML('beforeend',`
       <tr><td rowspan="2">${i+1}</td>
@@ -78,93 +82,119 @@ function renderTable(list){
   tbl.hidden=false;
 }
 
-/* ===== 畫圖 ===== */
+/* ---------- 畫圖 ---------- */
 let chart;
-function drawChart(tsArr,T,L,S,P){
-  if(chart)chart.destroy();
+function drawChart(ymArr,T,L,S,P){
+  if(chart) chart.destroy();
 
-  /* --- 1) 轉日期 → 季座標 --- */
-  const toDate=s=>new Date(+s.slice(0,4),+s.slice(4,6)-1,+s.slice(6,8));
-  const qn=d=>d.getFullYear()*4+Math.floor(d.getMonth()/3);
-  const qMin=qn(toDate(tsArr[0]))-1;
-  const qMax=qn(toDate(tsArr.at(-1)));
+  /* 26 個月份（資料前後各 +1 月） */
+  const ym2Date=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
+  const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
+  const toYM=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
-  const X=tsArr.map(s=>{
-    const d=toDate(s);
-    const q=qn(d);
-    const qStart=new Date(d.getFullYear(),Math.floor(d.getMonth()/3)*3,1);
-    const qEnd  =new Date(d.getFullYear(),Math.floor(d.getMonth()/3)*3+3,0);
-    const frac  =(d-qStart)/(qEnd-qStart+86400000);
-    return (q-qMin)+frac*0.9;            // 0~0.9
+  const start=addM(ym2Date(ymArr[0]),-1);
+  const months=[]; for(let d=start;months.length<26;d=addM(d,1)) months.push(toYM(d));
+  const monthIdx={}; months.forEach((m,i)=>monthIdx[m.replace('/','')]=i);
+
+  /* 每筆一點：月序 + 0.001*流水號 */
+  const dup={}, X=[];
+  ymArr.forEach(m=>{
+    dup[m]=(dup[m]??0)+1;
+    X.push(monthIdx[m]+dup[m]*0.001);
   });
-
-  const quarters=[];
-  for(let i=0;i<=qMax-qMin+1;i++){
-    const num=qMin+i, y=Math.floor(num/4), q=num%4+1;
-    quarters.push(`${y}Q${q}`);
-  }
 
   const maxI=T.indexOf(Math.max(...T));
   const minI=T.indexOf(Math.min(...T));
 
-  /* --- 2) 背景條 & 虧損區 --- */
+  /* 背景黑白條 */
   const stripe={id:'stripe',beforeDraw(c){
-    const {ctx,chartArea:{left,right,top,bottom}}=c, w=(right-left)/(quarters.length-1);
-    ctx.save();ctx.fillStyle='rgba(0,0,0,.05)';
-    for(let i=0;i<quarters.length-1;i+=2)ctx.fillRect(left+i*w,top,w,bottom-top);
+    const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+    ctx.save();
+    months.forEach((_,i)=>{
+      ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
+      ctx.fillRect(left+i*w,top,w,bottom-top);
+    });
     ctx.restore();
   }};
-  const lossArea={id:'loss',beforeDraw(c){
-    const {ctx,chartArea:{left,right,top,bottom},scales:{y}}=c;
-    ctx.save();ctx.fillStyle='rgba(255,152,152,.15)';
-    ctx.fillRect(left,y.getPixelForValue(0),right-left,bottom-y.getPixelForValue(0));
+  /* 月份文字 */
+  const mmLabel={id:'mmLabel',afterDraw(c){
+    const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
+    ctx.save();
+    ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
+    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));
     ctx.restore();
   }};
 
-  /* --- 3) 線/點樣式 --- */
-  const mkLine=(d,col,fill)=>({data:d,stepped:true,borderColor:col,borderWidth:2,
-      pointRadius:2,pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,fill,})
-  const mkLast=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,
-      pointRadius:2,pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
-      datalabels:{display:true,anchor:'end',align:'left',offset:6,
-                  formatter:v=>v.toLocaleString('zh-TW'),color:'#000',clip:false,font:{size:10}}})
-  const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:4,
-      pointBackgroundColor:col,pointBorderColor:col,
-      datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',
-                  offset:8,formatter:v=>v.toLocaleString('zh-TW'),color:'#000',clip:false,font:{size:10}}})
+  /* 線與點樣式（#12 實心彩色圓） */
+  const mkLine=(d,col,fill=false)=>({
+    data:d,stepped:true,
+    borderColor:col,borderWidth:2,
+    pointRadius:4,pointBackgroundColor:col,pointBorderColor:col,
+    pointBorderWidth:1,fill
+  });
+  const mkLast=(d,col)=>({
+    data:d.map((v,i)=>i===d.length-1?v:null),
+    showLine:false,pointRadius:6,
+    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
+    datalabels:{
+      display:true,anchor:'start',align:'left',offset:6,
+      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}
+    }
+  });
+  const mkMark=(d,i,col)=>({
+    data:d.map((v,j)=>j===i?v:null),
+    showLine:false,pointRadius:6,
+    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
+    datalabels:{
+      display:true,
+      anchor:i===maxI?'end':'start',
+      align:i===maxI?'top':'bottom',
+      offset:8,
+      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}
+    }
+  });
 
-  /* --- 4) Chart --- */
   chart=new Chart(cvs,{
     type:'line',
     data:{
       labels:X,
       datasets:[
-        mkLine(T,'#fbc02d',{target:'origin',above:'rgba(255,138,128,.18)',below:'rgba(200,230,201,.18)'}),
-        mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121'),
-        mkLast(T,'#fbc02d'), mkLast(L,'#d32f2f'), mkLast(S,'#2e7d32'), mkLast(P,'#212121'),
-        mkMark(T,maxI,'#d32f2f'), mkMark(T,minI,'#2e7d32')
+        /* --- 總線（含 #6 區域色塊） --- */
+        mkLine(T,'#fbc02d',{
+          target:'origin',
+          above:'rgba(255,138,128,.18)',   /* >0 red tint */
+          below:'rgba(200,230,201,.18)'    /* <0 green tint */
+        }),
+        mkLine(L,'#d32f2f'),
+        mkLine(S,'#2e7d32'),
+        mkLine(P,'#212121'),
+
+        mkLast(T,'#fbc02d'),mkLast(L,'#d32f2f'),
+        mkLast(S,'#2e7d32'),mkLast(P,'#212121'),
+
+        mkMark(T,maxI,'#d32f2f'),
+        mkMark(T,minI,'#2e7d32')
       ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
-      layout:{padding:{bottom:42,right:40}},
+      layout:{padding:{bottom:42}},          /* #15 給月份字露出 */
       plugins:{
         legend:{display:false},
         tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
-        datalabels:{display:false}
+        datalabels:{display:false}           /* 其餘數值不顯示 (#9) */
       },
       scales:{
-        x:{type:'linear',min:0,max:quarters.length-1+0.5,
-           grid:{display:false},
-           ticks:{autoSkip:false,callback:v=>quarters[v]??''}},
+        x:{type:'linear',min:0,max:25.999,
+           grid:{display:false},ticks:{display:false}},
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
       }
     },
-    plugins:[stripe,lossArea,ChartDataLabels]
+    plugins:[stripe,mmLabel,ChartDataLabels]
   });
 }
 
-/* ===== 小工具 ===== */
+/* ---------- 工具 ---------- */
 const fmt=n=>n.toLocaleString('zh-TW');
 function fmtTs(s){return `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;}
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
