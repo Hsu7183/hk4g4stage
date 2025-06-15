@@ -1,72 +1,103 @@
 /* ===== 常數 ===== */
-const MULT=200, FEE=45, TAX=0.00004, SLIP=1.5;
-const ENTRY=['新買','新賣'],
-      EXIT_L=['平賣','強制平倉'],
-      EXIT_S=['平買','強制平倉'];
+const MULT = 200,
+      FEE  = 45,
+      TAX  = 0.00004,
+      SLIP = 1.5;
 
-const btnClip=document.getElementById('btn-clip');
-const fileInput=document.getElementById('fileInput');
-const tbl=document.getElementById('tbl');
-const cvs=document.getElementById('equityChart');
+const ENTRY  = ['新買','新賣'],
+      EXIT_L = ['平賣','強制平倉'],
+      EXIT_S = ['平買','強制平倉'];
 
-/* ===== 讀資料 ===== */
-btnClip.addEventListener('click',async e=>{
-  try{analyse(await navigator.clipboard.readText());flash(e.target);}catch(err){alert(err.message);}
+const btnClip   = document.getElementById('btn-clip');
+const fileInput = document.getElementById('fileInput');
+const tbl       = document.getElementById('tbl');
+const cvs       = document.getElementById('equityChart');
+
+/* ========== 載入來源 ========= */
+btnClip.addEventListener('click', async e => {
+  try {
+    analyse(await navigator.clipboard.readText());
+    flash(e.target);
+  } catch (err) { alert(err.message); }
 });
-fileInput.addEventListener('change',e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const read=(enc)=>new Promise((ok,no)=>{
-    const r=new FileReader();
-    r.onload=()=>ok(r.result); r.onerror=no;
-    enc? r.readAsText(f,enc): r.readAsText(f);
+
+fileInput.addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+
+  const read = enc => new Promise((ok,no)=>{
+    const r = new FileReader();
+    r.onload  = () => ok(r.result);
+    r.onerror = () => no(r.error);
+    enc ? r.readAsText(f,enc) : r.readAsText(f);
   });
-  (async()=>{try{analyse(await read('big5'));}catch{analyse(await read());}
-    flash(e.target.parentElement);})();
+
+  (async () => {
+    try { analyse(await read('big5')); }
+    catch { analyse(await read()); }
+    flash(e.target.parentElement);
+  })();
 });
 
-/* ===== 主流程 ===== */
+/* ========== 分析主程式 ========= */
 function analyse(raw){
-  const rows=raw.trim().split(/\r?\n/); if(!rows.length)return alert('空檔案');
+  const rows = raw.trim().split(/\r?\n/);
+  if(!rows.length){ alert('空檔案'); return; }
 
-  const q=[],tr=[];
-  const YM=[],TOT=[],LON=[],SHO=[],SLI=[];
-  let cum=0,cumL=0,cumS=0,cumSlip=0;
+  const q  = [], tr = [];
+  const YM = [], TOT=[], LON=[], SHO=[], SLI=[];
+  let cum = 0, cumL = 0, cumS = 0, cumSlip = 0;
 
   rows.forEach(r=>{
-    const [tsRaw,pS,act]=r.trim().split(/\s+/); if(!act)return;
-    const price=+pS, ts=tsRaw.slice(0,12);
+    const [tsRaw, priceStr, act] = r.trim().split(/\s+/);
+    if(!act) return;
 
+    const price = +priceStr;
     if(ENTRY.includes(act)){
-      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
+      q.push({side: act==='新買'?'L':'S', pIn:price, tsIn:tsRaw,  typeIn:act});
       return;
     }
 
-    const i=q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));
-    if(i===-1) return;
-    const pos=q.splice(i,1)[0];
+    const idx = q.findIndex(o=>
+      (o.side==='L' && EXIT_L.includes(act)) ||
+      (o.side==='S' && EXIT_S.includes(act))
+    );
+    if(idx===-1) return;
 
-    const pts=pos.side==='L'?price-pos.pIn:pos.pIn-price;
-    const fee=FEE*2, tax=Math.round(price*MULT*TAX);
-    const gain=pts*MULT-fee-tax, gainSlip=gain-SLIP*MULT;
+    const pos = q.splice(idx,1)[0];
+    const pts = pos.side==='L' ? price-pos.pIn : pos.pIn-price;
+    const fee = FEE*2, tax = Math.round(price*MULT*TAX);
+    const gain = pts*MULT - fee - tax;
+    const gainSlip = gain - SLIP*MULT;
 
-    cum+=gain; cumSlip+=gainSlip;
-    pos.side==='L'? cumL+=gain: cumS+=gain;
+    cum += gain; cumSlip += gainSlip;
+    pos.side==='L' ? cumL+=gain : cumS+=gain;
 
-    tr.push({pos,tsOut:ts,priceOut:price,actOut:act,pts,fee,tax,gain,cum,gainSlip,cumSlip});
+    tr.push({
+      pos,
+      tsOut : tsRaw,
+      priceOut : price,
+      actOut   : act,
+      pts, fee, tax, gain, cum, gainSlip, cumSlip
+    });
 
-    YM.push(ts.slice(0,6));
-    TOT.push(cum); LON.push(cumL); SHO.push(cumS); SLI.push(cumSlip);
+    YM .push(tsRaw.slice(0,6));
+    TOT.push(cum);
+    LON.push(cumL);
+    SHO.push(cumS);
+    SLI.push(cumSlip);
   });
-  if(!tr.length) return alert('沒有成功配對的交易');
+
+  if(!tr.length){ alert('沒有成功配對的交易'); return; }
 
   renderTable(tr);
   drawChart(YM,TOT,LON,SHO,SLI);
 }
 
-/* ===== 表格 ===== */
+/* ========== 表格 ========= */
 function renderTable(list){
-  const body=tbl.querySelector('tbody');
-  body.innerHTML='';
+  const body = tbl.querySelector('tbody');
+  body.innerHTML = '';
   list.forEach((t,i)=>{
     body.insertAdjacentHTML('beforeend',`
       <tr><td rowspan="2">${i+1}</td>
@@ -78,49 +109,59 @@ function renderTable(list){
           <td>${fmt(t.gainSlip)}</td><td>${fmt(t.cumSlip)}</td></tr>
     `);
   });
-  tbl.hidden=false;
+  tbl.hidden = false;
 }
 
-/* ===== 畫圖 ===== */
+/* ========== 繪圖 ========= */
 let chart;
 function drawChart(ymSeq,T,L,S,P){
   if(chart) chart.destroy();
 
-  /* -- 26 個等寬月份（前後各+1 月） -- */
-  const ym2d=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
-  const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
-  const toYM=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  /* ---- 26 等寬月份 ---- */
+  const ym2d = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
+  const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
+  const toYM = d => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
-  const first=ym2d(ymSeq[0]), last=ym2d(ymSeq.at(-1));
-  const start=addM(first,-1);
-  const months=[]; for(let d=start;months.length<26;d=addM(d,1)) months.push(toYM(d));
-  const xm={}; months.forEach((m,i)=>xm[m.replace('/','')]=i);
+  const firstDate = ym2d(ymSeq[0]);
+  const endDate   = ym2d(ymSeq.at(-1));          // ← 修正名稱，避免重複宣告
 
-  /* 每筆交易的 x：月序 + 0.001, 0.002… 保留順序 */
-  const freq={},X=[];
+  const start = addM(firstDate,-1);
+  const months=[];
+  for(let d=start; months.length<26; d=addM(d,1)) months.push(toYM(d));
+
+  const xm={}; months.forEach((m,i)=> xm[m.replace('/','')]=i);
+
+  /* 每筆點的 x = 月序 + 0.00x  (確保同月多點可見) */
+  const freq={}, X=[];
   ymSeq.forEach(m=>{
     freq[m]=(freq[m]??0)+1;
     X.push(xm[m]+freq[m]*0.001);
   });
 
-  const maxI=T.indexOf(Math.max(...T)),minI=T.indexOf(Math.min(...T));
+  const maxI=T.indexOf(Math.max(...T)),
+        minI=T.indexOf(Math.min(...T));
 
   /* 背景條 */
   const stripe={id:'stripe',beforeDraw(c){
-    const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+    const {ctx,chartArea:{left,right,top,bottom}}=c,
+          w=(right-left)/26;
     ctx.save();
     months.forEach((_,i)=>{
-      ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
+      ctx.fillStyle = i%2 ? 'rgba(0,0,0,.05)' : 'transparent';
       ctx.fillRect(left+i*w,top,w,bottom-top);
     });
     ctx.restore();
   }};
 
-  /* 月份文字置中 */
+  /* 月份文字 */
   const monthLabel={id:'monthLabel',afterDraw(c){
-    const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
+    const {ctx,chartArea:{left,right,bottom}}=c,
+          w=(right-left)/26;
     ctx.save();
-    ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillStyle='#666';
+    ctx.font='10px sans-serif';
+    ctx.textAlign='center';
+    ctx.textBaseline='top';
     months.forEach((m,i)=> ctx.fillText(m,left+w*(i+0.5),bottom+4));
     ctx.restore();
   }};
@@ -129,25 +170,30 @@ function drawChart(ymSeq,T,L,S,P){
     data:d,borderColor:col,borderWidth:2,stepped:true,
     pointRadius:3,pointBackgroundColor:col,pointBorderColor:col,fill:false
   });
-  const last=(d,col)=>({
-    data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:5,
-    pointBackgroundColor:col,datalabels:{anchor:'start',align:'left',offset:6}
+  const lastPt=(d,col)=>({
+    data:d.map((v,i)=>i===d.length-1?v:null),
+    showLine:false,pointRadius:5,pointBackgroundColor:col,
+    datalabels:{anchor:'start',align:'left',offset:6}
   });
 
   chart=new Chart(cvs,{
     type:'line',
-    data:{labels:X,datasets:[
-      step(T ,'#fbc02d'), step(L ,'#d32f2f'),
-      step(S ,'#2e7d32'), step(P ,'#212121'),
-      last(T,'#fbc02d'), last(L,'#d32f2f'),
-      last(S,'#2e7d32'), last(P,'#212121'),
-      {data:T.map((v,i)=>i===maxI?v:null),showLine:false,pointRadius:6,
-       pointBackgroundColor:'#d32f2f',
-       datalabels:{anchor:'end',align:'top',offset:8}},
-      {data:T.map((v,i)=>i===minI?v:null),showLine:false,pointRadius:6,
-       pointBackgroundColor:'#2e7d32',
-       datalabels:{anchor:'end',align:'bottom',offset:8}}
-    ]},
+    data:{
+      labels:X,
+      datasets:[
+        step(T,'#fbc02d'), step(L,'#d32f2f'),
+        step(S,'#2e7d32'), step(P,'#212121'),
+        lastPt(T,'#fbc02d'), lastPt(L,'#d32f2f'),
+        lastPt(S,'#2e7d32'), lastPt(P,'#212121'),
+
+        {data:T.map((v,i)=>i===maxI?v:null),
+         showLine:false,pointRadius:6,pointBackgroundColor:'#d32f2f',
+         datalabels:{anchor:'end',align:'top',offset:8}},
+        {data:T.map((v,i)=>i===minI?v:null),
+         showLine:false,pointRadius:6,pointBackgroundColor:'#2e7d32',
+         datalabels:{anchor:'end',align:'bottom',offset:8}}
+      ]
+    },
     options:{
       responsive:true,maintainAspectRatio:false,
       plugins:{
@@ -160,10 +206,7 @@ function drawChart(ymSeq,T,L,S,P){
         }
       },
       scales:{
-        x:{
-          type:'linear',min:0,max:25.999,grid:{display:false},
-          ticks:{display:false}
-        },
+        x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
       }
     },
@@ -171,7 +214,7 @@ function drawChart(ymSeq,T,L,S,P){
   });
 }
 
-/* ===== 工具 ===== */
-const fmt   =n=>n.toLocaleString('zh-TW');
-const fmtTs =s=>`${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+/* ========== 小工具 ========= */
+const fmt   = n => n.toLocaleString('zh-TW');
+const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
