@@ -28,9 +28,9 @@ function analyse(raw){
     const i=Q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(a))||(o.side==='S'&&EXIT_S.includes(a)));
     if(i===-1) return;
     const pos=Q.splice(i,1)[0];
-    const pts = pos.side==='L'?price-pos.pIn:pos.pIn-price;
-    const fee = FEE*2, tax=Math.round(price*MULT*TAX);
-    const g   = pts*MULT-fee-tax, gSlip=g-SLIP*MULT;
+    const pts=pos.side==='L'?price-pos.pIn:pos.pIn-price;
+    const fee=FEE*2, tax=Math.round(price*MULT*TAX);
+    const g=pts*MULT-fee-tax, gSlip=g-SLIP*MULT;
     cT+=g; cP+=gSlip; pos.side==='L'?cL+=g:cS+=g;
 
     tx.push({pos,tsOut:ts,priceOut:price,actOut:a,pts,fee,tax,g,cT,gSlip,cP});
@@ -57,9 +57,9 @@ let chart;
 function drawChart(tsArr,T,L,S,P){
   if(chart) chart.destroy();
 
-  /* 月格＋比例 x 座標 ---------------- */
+  /* 月格＋比例 -------------------- */
   const ym2Date=y=>new Date(+y.slice(0,4),+y.slice(4,6)-1);
-  const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
+  const addM =(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
   const ymTxt=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
   const firstYM=tsArr[0].slice(0,6); const start=addM(ym2Date(firstYM),-1);
@@ -69,41 +69,30 @@ function drawChart(tsArr,T,L,S,P){
   const X=tsArr.map(ts=>{
     const ym=ts.slice(0,6), d=+ts.slice(6,8);
     const days=new Date(+ym.slice(0,4),+ym.slice(4,6),0).getDate();
-    return idx[ym] + (d-0.5)/days;                       // 0~0.98
+    return idx[ym] + (d-0.5)/days;
   });
 
   const maxI=T.indexOf(Math.max(...T)), minI=T.indexOf(Math.min(...T));
 
   /* plugin：月條 & 標籤 ---------- */
   const stripe={id:'stripe',beforeDraw(c){
-    const {ctx,chartArea:{left,right,top,bottom}}=c, w=(right-left)/26;
+    const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
     ctx.save(); months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
       ctx.fillRect(left+i*w,top,w,bottom-top);}); ctx.restore();}};
   const mmLabel={id:'mmLabel',afterDraw(c){
-    const {ctx,chartArea:{left,right,bottom}}=c, w=(right-left)/26;
+    const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
     ctx.save(); ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#555';
     months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8)); ctx.restore();}};
 
-  /* dataset factory ------------------ */
+  /* dataset factory ---------------- */
   const mkLine=(d,col,fill=false)=>({data:d,stepped:true,borderColor:col,borderWidth:2,
       pointRadius:4,pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,fill});
-  const mkLast=(d,col)=>{                   /* ★ 右側標籤：空點偏 0.5 月格 */
-    const xAdd=0.5; const lastX=d.length-1;
-    const fakeX = X[lastX]+xAdd; const fakeY=d[lastX];
-    return {data:d.map(()=>null).concat(fakeY), showLine:false,
-      pointRadius:[...Array(d.length).fill(0),6],
-      pointBackgroundColor:[...Array(d.length).fill('rgba(0,0,0,0)'),col],
-      pointBorderColor:[...Array(d.length).fill('rgba(0,0,0,0)'),col],
-      pointBorderWidth:1,
-      parsing:false,                       // 手動給座標
-      segment:{},
-      datalabels:{display:(ctx)=>ctx.dataIndex===d.length,anchor:'start',align:'left',
-        offset:4,clip:false,color:'#000',font:{size:10},
-        formatter:v=>v.toLocaleString('zh-TW')},
-      spanGaps:true,
-      xAxisID:'x',                        // 額外點的 x
-      _custom:{x:fakeX,y:fakeY}           // Chart.js v4 自定義座標
-    };
+  const mkLast=(d,col)=>{
+    const x=X[X.length-1]+0.5, y=d[d.length-1];   // 再往右半格
+    return {type:'scatter',
+      data:[{x,y}],pointRadius:6,pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
+      datalabels:{display:true,anchor:'start',align:'left',offset:4,clip:false,
+                  formatter:()=>y.toLocaleString('zh-TW'),color:'#000',font:{size:10}}};
   };
   const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:6,
       pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
@@ -112,8 +101,7 @@ function drawChart(tsArr,T,L,S,P){
 
   chart=new Chart(cvs,{
     type:'line',
-    data:{labels:[...X, null],   /* 多一格給 fakeX 用 */
-          datasets:[
+    data:{labels:X,datasets:[
       mkLine(T,'#fbc02d',{target:'origin',above:'rgba(255,138,128,.18)',below:'rgba(200,230,201,.18)'}),
       mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121'),
       mkLast(T,'#fbc02d'), mkLast(L,'#d32f2f'), mkLast(S,'#2e7d32'), mkLast(P,'#212121'),
@@ -128,7 +116,7 @@ function drawChart(tsArr,T,L,S,P){
         datalabels:{display:false}
       },
       scales:{
-        x:{type:'linear',min:-0.2,max:months.length-1+1, /* ★ 右再留 1 月格 */
+        x:{type:'linear',min:-0.2,max:months.length-1+1,
            grid:{display:false},ticks:{display:false}},
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
       }
