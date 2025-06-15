@@ -38,7 +38,7 @@ function analyse(raw){
     const price=+pStr, ts=tsRaw.slice(0,12);
 
     if(ENTRY.includes(act)){ // 開倉
-      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts,typeIn:act});
+      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
       return;
     }
 
@@ -111,8 +111,8 @@ function drawChart(ymSeq,T,L,S,P){
   const stripe={id:'stripe',beforeDraw(c){
     const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
     ctx.save();
-    for(let i=0;i<26;i+=2){
-      ctx.fillStyle='rgba(0,0,0,.05)';
+    for(let i=0;i<26;i++){
+      ctx.fillStyle=i%2? 'rgba(0,0,0,.05)':'transparent';
       ctx.fillRect(left+i*w,top,w,bottom-top);
     }
     ctx.restore();
@@ -159,8 +159,12 @@ function drawChart(ymSeq,T,L,S,P){
           ticks:{
             stepSize:1,
             callback:v=>{
-              const i=Math.round(v);
-              return v-i===0 ? months[i] : '';
+              const center=v-0.5;
+              if(Math.abs(center-Math.round(center))<0.01){
+                const i=Math.round(center);
+                return months[i] ?? '';
+              }
+              return '';
             }
           }
         },
