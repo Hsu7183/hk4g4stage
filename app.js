@@ -1,4 +1,4 @@
-/* ========= 常數 ========= */
+/* ===== 常數 ===== */
 const MULT=200, FEE=45, TAX=0.00004, SLIP=1.5;
 const ENTRY=['新買','新賣'],
       EXIT_L=['平賣','強制平倉'],
@@ -7,9 +7,9 @@ const ENTRY=['新買','新賣'],
 const btnClip=document.getElementById('btn-clip');
 const fileInput=document.getElementById('fileInput');
 const tbl=document.getElementById('tbl');
-const canvas=document.getElementById('equityChart');
+const cvs=document.getElementById('equityChart');
 
-/* ========= 讀檔 ========= */
+/* ===== 讀資料 ===== */
 btnClip.addEventListener('click',async e=>{
   try{analyse(await navigator.clipboard.readText());flash(e.target);}catch(err){alert(err.message);}
 });
@@ -18,26 +18,25 @@ fileInput.addEventListener('change',e=>{
   const read=(enc)=>new Promise((ok,no)=>{
     const r=new FileReader();
     r.onload=()=>ok(r.result); r.onerror=no;
-    enc?r.readAsText(f,enc):r.readAsText(f);
+    enc? r.readAsText(f,enc): r.readAsText(f);
   });
-  (async()=>{
-    try{analyse(await read('big5'));}catch{analyse(await read());}
-    flash(e.target.parentElement);
-  })();
+  (async()=>{try{analyse(await read('big5'));}catch{analyse(await read());}
+    flash(e.target.parentElement);})();
 });
 
-/* ========= 解析 & 彙整 ========= */
+/* ===== 主流程 ===== */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/); if(!rows.length)return alert('空檔案');
 
-  const q=[],tr=[],ymSeq=[],TOT=[],LON=[],SHO=[],SLI=[];
+  const q=[],tr=[];
+  const YM=[],TOT=[],LON=[],SHO=[],SLI=[];
   let cum=0,cumL=0,cumS=0,cumSlip=0;
 
   rows.forEach(r=>{
-    const [tsRaw,pStr,act]=r.trim().split(/\s+/); if(!act)return;
-    const price=+pStr, ts=tsRaw.slice(0,12);
+    const [tsRaw,pS,act]=r.trim().split(/\s+/); if(!act)return;
+    const price=+pS, ts=tsRaw.slice(0,12);
 
-    if(ENTRY.includes(act)){ // 開倉
+    if(ENTRY.includes(act)){
       q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
       return;
     }
@@ -51,25 +50,25 @@ function analyse(raw){
     const gain=pts*MULT-fee-tax, gainSlip=gain-SLIP*MULT;
 
     cum+=gain; cumSlip+=gainSlip;
-    pos.side==='L' ? cumL+=gain : cumS+=gain;
+    pos.side==='L'? cumL+=gain: cumS+=gain;
 
     tr.push({pos,tsOut:ts,priceOut:price,actOut:act,pts,fee,tax,gain,cum,gainSlip,cumSlip});
 
+    YM.push(ts.slice(0,6));
     TOT.push(cum); LON.push(cumL); SHO.push(cumS); SLI.push(cumSlip);
-    ymSeq.push(ts.slice(0,6));
   });
-  if(!tr.length) return alert('沒有成功配對的交易！');
+  if(!tr.length) return alert('沒有成功配對的交易');
 
   renderTable(tr);
-  drawChart(ymSeq,TOT,LON,SHO,SLI);  // 畫圖
+  drawChart(YM,TOT,LON,SHO,SLI);
 }
 
-/* ========= 表格 ========= */
+/* ===== 表格 ===== */
 function renderTable(list){
-  const tb=tbl.querySelector('tbody');
-  tb.innerHTML='';
+  const body=tbl.querySelector('tbody');
+  body.innerHTML='';
   list.forEach((t,i)=>{
-    tb.insertAdjacentHTML('beforeend',`
+    body.insertAdjacentHTML('beforeend',`
       <tr><td rowspan="2">${i+1}</td>
           <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td><td>${t.pos.typeIn}</td>
           <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
@@ -82,63 +81,70 @@ function renderTable(list){
   tbl.hidden=false;
 }
 
-/* ========= 畫圖 ========= */
+/* ===== 畫圖 ===== */
 let chart;
 function drawChart(ymSeq,T,L,S,P){
   if(chart) chart.destroy();
 
-  /* ===== 26 個等寬月份 ===== */
-  const ymToDate=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
-  const addM  =(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
-  const fmtYM =d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  /* -- 26 個等寬月份（前後各+1 月） -- */
+  const ym2d=ym=>new Date(+ym.slice(0,4),+ym.slice(4,6)-1);
+  const addM=(d,n)=>new Date(d.getFullYear(),d.getMonth()+n);
+  const toYM=d=>`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`;
 
-  const first=ymToDate(ymSeq[0]), last=ymToDate(ymSeq[ymSeq.length-1]);
+  const first=ym2d(ymSeq[0]), last=ym2d(ymSeq.at(-1));
   const start=addM(first,-1);
-  const months=[]; for(let d=start;months.length<26;d=addM(d,1)) months.push(fmtYM(d));
-
-  /* x 座標：月序 + 0.01,0.02… 保持等寬 */
+  const months=[]; for(let d=start;months.length<26;d=addM(d,1)) months.push(toYM(d));
   const xm={}; months.forEach((m,i)=>xm[m.replace('/','')]=i);
-  const freq={},X=[],TT=[],LL=[],SS=[],PP=[];
-  ymSeq.forEach((m,i)=>{
+
+  /* 每筆交易的 x：月序 + 0.001, 0.002… 保留順序 */
+  const freq={},X=[];
+  ymSeq.forEach(m=>{
     freq[m]=(freq[m]??0)+1;
-    X.push(xm[m]+freq[m]*0.01);
-    TT.push(T[i]); LL.push(L[i]); SS.push(S[i]); PP.push(P[i]);
+    X.push(xm[m]+freq[m]*0.001);
   });
 
-  const maxI=TT.indexOf(Math.max(...TT)),minI=TT.indexOf(Math.min(...TT));
+  const maxI=T.indexOf(Math.max(...T)),minI=T.indexOf(Math.min(...T));
 
   /* 背景條 */
   const stripe={id:'stripe',beforeDraw(c){
     const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
     ctx.save();
-    for(let i=0;i<26;i++){
-      ctx.fillStyle=i%2? 'rgba(0,0,0,.05)':'transparent';
+    months.forEach((_,i)=>{
+      ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
       ctx.fillRect(left+i*w,top,w,bottom-top);
-    }
+    });
     ctx.restore();
   }};
 
-  /* ---------- dataset helpers ---------- */
+  /* 月份文字置中 */
+  const monthLabel={id:'monthLabel',afterDraw(c){
+    const {ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
+    ctx.save();
+    ctx.fillStyle='#666'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    months.forEach((m,i)=> ctx.fillText(m,left+w*(i+0.5),bottom+4));
+    ctx.restore();
+  }};
+
   const step=(d,col)=>({
     data:d,borderColor:col,borderWidth:2,stepped:true,
     pointRadius:3,pointBackgroundColor:col,pointBorderColor:col,fill:false
   });
-  const lastPt=(d,col,shift)=>({
-    data:d.map((v,i)=>i===d.length-1?v:null),
-    showLine:false,pointRadius:5,pointBackgroundColor:col,
-    datalabels:{anchor:'start',align:'right',offset:4+shift}
+  const last=(d,col)=>({
+    data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:5,
+    pointBackgroundColor:col,datalabels:{anchor:'start',align:'left',offset:6}
   });
 
-  /* ---------- 建圖 ---------- */
-  chart=new Chart(canvas,{
+  chart=new Chart(cvs,{
     type:'line',
     data:{labels:X,datasets:[
-      step(TT,'#fbc02d'), step(LL,'#d32f2f'), step(SS,'#2e7d32'), step(PP,'#212121'),
-      lastPt(TT,'#fbc02d',10), lastPt(LL,'#d32f2f',12), lastPt(SS,'#2e7d32',12), lastPt(PP,'#212121',12),
-      {data:TT.map((v,i)=>i===maxI?v:null),showLine:false,pointRadius:6,
+      step(T ,'#fbc02d'), step(L ,'#d32f2f'),
+      step(S ,'#2e7d32'), step(P ,'#212121'),
+      last(T,'#fbc02d'), last(L,'#d32f2f'),
+      last(S,'#2e7d32'), last(P,'#212121'),
+      {data:T.map((v,i)=>i===maxI?v:null),showLine:false,pointRadius:6,
        pointBackgroundColor:'#d32f2f',
        datalabels:{anchor:'end',align:'top',offset:8}},
-      {data:TT.map((v,i)=>i===minI?v:null),showLine:false,pointRadius:6,
+      {data:T.map((v,i)=>i===minI?v:null),showLine:false,pointRadius:6,
        pointBackgroundColor:'#2e7d32',
        datalabels:{anchor:'end',align:'bottom',offset:8}}
     ]},
@@ -148,34 +154,24 @@ function drawChart(ymSeq,T,L,S,P){
         legend:{display:false},
         tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
         datalabels:{
-          color:'#333',font:{size:10},clip:false,
+          color:'#000',font:{size:10},clip:false,
           formatter:v=>v?.toLocaleString('zh-TW')||'',
           display:(ctx)=>ctx.dataset.showLine===false
         }
       },
       scales:{
         x:{
-          type:'linear',min:0,max:25.9,grid:{display:false},
-          ticks:{
-            stepSize:1,
-            callback:v=>{
-              const center=v-0.5;
-              if(Math.abs(center-Math.round(center))<0.01){
-                const i=Math.round(center);
-                return months[i] ?? '';
-              }
-              return '';
-            }
-          }
+          type:'linear',min:0,max:25.999,grid:{display:false},
+          ticks:{display:false}
         },
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
       }
     },
-    plugins:[stripe,ChartDataLabels]
+    plugins:[stripe,monthLabel,ChartDataLabels]
   });
 }
 
-/* ========= 小工具 ========= */
-const fmt   =v=>v.toLocaleString('zh-TW');
+/* ===== 工具 ===== */
+const fmt   =n=>n.toLocaleString('zh-TW');
 const fmtTs =s=>`${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
