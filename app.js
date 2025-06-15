@@ -10,33 +10,29 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   document.getElementById('fileInput').addEventListener('change',e=>{
     const f=e.target.files[0];if(!f)return;
-    const read=(enc)=>new Promise((ok,no)=>{const r=new FileReader();
-      r.onload=()=>ok(r.result);r.onerror=()=>no(r.error);
-      enc?r.readAsText(f,enc):r.readAsText(f);});
-    (async()=>{try{analyse(await read('big5'));}catch{analyse(await read());}
-      flash(e.target.parentElement);})();
+    const rd=new FileReader();
+    rd.onload=()=>analyse(rd.result);
+    rd.readAsText(f);           /* big5→utf-8 檔案瀏覽器多會自動轉成Unicode */
   });
 });
 
 /* ===== 主流程 ===== */
 function analyse(raw){
   const rows=raw.trim().split(/\r?\n/);if(!rows.length)return alert('空檔案');
-
-  const q=[],tr=[];const x=[],tot=[],longA=[],shortA=[],slipA=[];
+  const q=[],tr=[];
+  const x=[],tot=[],longA=[],shortA=[],slipA=[],monthTag=[];
   let cum=0,cumL=0,cumS=0,cumSlip=0;
-
   rows.forEach(r=>{
     const [tsRaw,pRaw,act]=r.trim().split(/\s+/);if(!act)return;
+    /* tsRaw 可能含秒後多餘字，僅取前 12 碼 (YYYYMMDDhhmm) */
+    const ts=tsRaw.slice(0,12);
     const price=+parseFloat(pRaw);
-
-    /* --- 日期字串修正 (FIX) --- */
-    const ISO=`${tsRaw.slice(0,4)}-${tsRaw.slice(4,6)}-${tsRaw.slice(6,8)}`;
+    const month = ts.slice(0,6);                             // 202308
 
     if(ENTRY.includes(act)){
-      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:tsRaw,typeIn:act});
+      q.push({side:act==='新買'?'L':'S',pIn:price,tsIn:ts,typeIn:act});
       return;
     }
-
     const i=q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act))||(o.side==='S'&&EXIT_S.includes(act)));
     if(i===-1)return;
     const pos=q.splice(i,1)[0];
@@ -44,20 +40,20 @@ function analyse(raw){
     const pts=pos.side==='L'?price-pos.pIn:pos.pIn-price;
     const fee=FEE*2,tax=Math.round(price*MULT*TAX);
     const gain=pts*MULT-fee-tax,gainSlip=gain-SLIP*MULT;
-
     cum+=gain;cumSlip+=gainSlip;
     pos.side==='L'?cumL+=gain:cumS+=gain;
 
     tr.push({inTs:pos.tsIn,inPrice:pos.pIn,inType:pos.typeIn,
-             outTs:tsRaw,outPrice:price,outType:act,
+             outTs:ts,outPrice:price,outType:act,
              pts,fee,tax,gain,cum,gainSlip,cumSlip});
 
-    x.push(new Date(ISO));tot.push(cum);longA.push(cumL);
-    shortA.push(cumS);slipA.push(cumSlip);
+    /* 資料給圖表 */
+    monthTag.push(month);             // 月份標籤序列，同 x 一對一
+    x.push(x.length);                 // 線性座標 0,1,2…
+    tot.push(cum);longA.push(cumL);shortA.push(cumS);slipA.push(cumSlip);
   });
-
   if(!tr.length)return alert('沒有成功配對的交易！');
-  renderTable(tr);drawChart(x,tot,longA,shortA,slipA);
+  renderTable(tr);drawChart(x,monthTag,tot,longA,shortA,slipA);
 }
 
 /* ===== 表格 ===== */
@@ -78,32 +74,36 @@ function renderTable(list){
 
 /* ===== 畫圖 ===== */
 let chart;
-function drawChart(time,T,L,S,P){
+function drawChart(xIdx,monthTag,T,L,S,P){
   if(chart)chart.destroy();
-
-  /* --- stripe 背景 (等寬月條) --- */
+  /* 取月份轉陣列 (yyyy/MM)，計算月起點 */
+  const monthLabels=[];const monthStart=[];
+  monthTag.forEach((m,i)=>{if(i===0||m!==monthTag[i-1]){
+    monthLabels.push(m.slice(0,4)+'/'+m.slice(4,6));monthStart.push(i);
+  }});
+  /* stripe plugin : 24 個月等寬黑白相間 */
   const stripe={id:'stripe',beforeDraw(c){
-    const {ctx,chartArea:{top,bottom},scales:{x}}=c;
-    ctx.save();time.forEach((_,i)=>{if(i%2===0){
-      const x0=x.getPixelForValue(i),x1=x.getPixelForValue(i+1)||x0+(x.getPixelForValue(i)-x.getPixelForValue(i-1));
-      ctx.fillStyle='rgba(0,0,0,.05)';ctx.fillRect(x0,top,x1-x0,bottom-top);
-    }});ctx.restore();
+    const {ctx,chartArea:{top,bottom,left,right},scales:{x}}=c;
+    const cell=(right-left)/monthLabels.length;
+    ctx.save();
+    monthLabels.forEach((_,i)=>{
+      if(i%2===0){ctx.fillStyle='rgba(0,0,0,.05)';
+        ctx.fillRect(left+i*cell,top,cell,bottom-top);}
+    });
+    ctx.restore();
   }};
-
-  /* --- 資料集工廠 --- */
-  const step=(d,col)=>({
-    data:d,borderColor:col,borderWidth:2,stepped:true,
-    pointRadius:3,pointBackgroundColor:col,pointBorderColor:col,fill:false
-  });
-  const lastPt=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),
-                           showLine:false,pointRadius:5,pointBackgroundColor:col});
+  /* dataset 工具 */
+  const step=(d,col)=>({data:d,borderColor:col,borderWidth:2,stepped:true,
+    pointRadius:3,pointBackgroundColor:col,pointBorderColor:col,fill:false});
+  const last=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),
+    showLine:false,pointRadius:5,pointBackgroundColor:col});
   const maxI=T.indexOf(Math.max(...T)),minI=T.indexOf(Math.min(...T));
 
   chart=new Chart(equityChart,{
     type:'line',
-    data:{labels:time,datasets:[
+    data:{labels:xIdx,datasets:[
       step(T,'#fbc02d'),step(L,'#d32f2f'),step(S,'#2e7d32'),step(P,'#212121'),
-      lastPt(T,'#fbc02d'),lastPt(L,'#d32f2f'),lastPt(S,'#2e7d32'),lastPt(P,'#212121'),
+      last(T,'#fbc02d'),last(L,'#d32f2f'),last(S,'#2e7d32'),last(P,'#212121'),
       {data:T.map((v,i)=>i===maxI?v:null),showLine:false,pointRadius:6,pointBackgroundColor:'#d32f2f'},
       {data:T.map((v,i)=>i===minI?v:null),showLine:false,pointRadius:6,pointBackgroundColor:'#2e7d32'}
     ]},
@@ -114,14 +114,17 @@ function drawChart(time,T,L,S,P){
         tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
         datalabels:{
           display:ctx=>ctx.dataset.showLine===false,
-          align:'left',anchor:'end',offset:6,font:{size:10},
+          align:'left',anchor:'end',offset:8,font:{size:10},
           formatter:v=>v?.toLocaleString('zh-TW')||''
         }
       },
       scales:{
         x:{
-          type:'time',time:{unit:'month',round:'month',displayFormats:{month:'yyyy/MM'}},
-          ticks:{maxTicksLimit:24},
+          type:'linear',
+          ticks:{
+            callback:(v,i)=>monthStart.includes(i)?monthLabels[monthStart.indexOf(i)]:'' ,
+            maxRotation:0,minRotation:0
+          },
           grid:{display:false}
         },
         y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
@@ -131,7 +134,7 @@ function drawChart(time,T,L,S,P){
   });
 }
 
-/* ===== 小工具 ===== */
+/* ===== 工具 ===== */
 const fmt=v=>v.toLocaleString('zh-TW');
-const fmtTs=s=>s.slice(0,4)+'/'+s.slice(4,2)+'/'+s.slice(6,2);
+const fmtTs=s=>`${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
