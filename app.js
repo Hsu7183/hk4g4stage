@@ -203,7 +203,7 @@ function drawChart (tsArr, T, L, S, P) {
       const xScale = c.scales.x;
       ctx.save();
       quarters.forEach((q, i) => {
-        const x1 = xScale.getPixelForValue(q.start + 0.5),   // 0.5 → 柱中心
+        const x1 = xScale.getPixelForValue(q.start + 0.5),
               x2 = xScale.getPixelForValue(q.end + 1.5);
         ctx.fillStyle = i % 2 ? 'rgba(0,0,0,.05)' : 'transparent';
         ctx.fillRect(x1, top, x2 - x1, bottom - top);
@@ -232,120 +232,16 @@ function drawChart (tsArr, T, L, S, P) {
     }
   };
 
-  /* === 資料集工廠 === */
-  const mkLine = (d, col) => ({
-    data        : d,
-    stepped     : true,
-    borderColor : col,
-    borderWidth : 2,
-    pointRadius : 4,
-    pointBackgroundColor: col,
-    pointBorderColor   : col,
-    pointBorderWidth   : 1,
-    fill        : false
-  });
+  /* === 最後數值固定右側標籤 === */
+  const lastValueLabel = {
+    id: 'lastValueLabel',
+    afterDraw (c) {
+      const { ctx, chartArea: { right, top, bottom } } = c;
+      ctx.save();
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
 
-  const mkLast = (d, col) => ({
-    data: d.map((v, i) => (i === d.length - 1 ? v : null)),
-    showLine: false,
-    pointRadius: 6,
-    pointBackgroundColor: col,
-    pointBorderColor: col,
-    pointBorderWidth: 1,
-    datalabels: {
-      display   : true,
-      anchor    : 'start',   // 文字在右側
-      align     : 'left',
-      offset    : 6,
-      formatter : v => v?.toLocaleString('zh-TW') ?? '',
-      color     : '#000',
-      clip      : false,
-      font      : { size: 10 }
-    }
-  });
-
-  const maxI = T.indexOf(Math.max(...T));
-  const minI = T.indexOf(Math.min(...T));
-  const mkMark = (d, idx, col) => ({
-    data: d.map((v, i) => (i === idx ? v : null)),
-    showLine: false,
-    pointRadius: 6,
-    pointBackgroundColor: col,
-    pointBorderColor: col,
-    pointBorderWidth: 1,
-    datalabels: {
-      display   : true,
-      anchor    : idx === maxI ? 'end' : 'start',
-      align     : idx === maxI ? 'top' : 'bottom',
-      offset    : 8,
-      formatter : v => v?.toLocaleString('zh-TW') ?? '',
-      color     : '#000',
-      clip      : false,
-      font      : { size: 10 }
-    }
-  });
-
-  /* === 建立圖表 === */
-  chart = new Chart(cvs, {
-    type: 'line',
-    data: {
-      labels: X,
-      datasets: [
-        mkLine(T, '#fbc02d'),
-        mkLine(L, '#d32f2f'),
-        mkLine(S, '#2e7d32'),
-        mkLine(P, '#212121'),
-
-        mkLast(T, '#fbc02d'),
-        mkLast(L, '#d32f2f'),
-        mkLast(S, '#2e7d32'),
-        mkLast(P, '#212121'),
-
-        mkMark(T, maxI, '#d32f2f'),
-        mkMark(T, minI, '#2e7d32')
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      layout: { padding: { bottom: 42, right: 60 } },  // 右側留白給數值
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: c => ' ' + c.parsed.y.toLocaleString('zh-TW')
-          }
-        },
-        datalabels: { display: false }
-      },
-      scales: {
-        x: {
-          type: 'linear',
-          min : 1,
-          max : X.length + 1,
-          grid: { display: false },
-          ticks: { display: false }
-        },
-        y: {
-          ticks: {
-            callback: v => v.toLocaleString('zh-TW')
-          }
-        }
-      }
-    },
-    plugins: [stripe, qLabel, ChartDataLabels]
-  });
-}
-
-/* ---------------- 工具 ---------------- */
-
-const fmt = n => n.toLocaleString('zh-TW');
-
-function fmtTs (s) {
-  return `${s.slice(0, 4)}/${s.slice(4, 6)}/${s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}`;
-}
-
-function flash (el) {
-  el.classList.add('flash');
-  setTimeout(() => el.classList.remove('flash'), 600);
-}
+      // 只處理前四條主線 (0~3)
+      c.data.datasets.slice(0, 4).forEach(ds => {
+        const meta = c.get
