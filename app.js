@@ -1,255 +1,256 @@
-/* ===== 參數 ===== */
+/* ===== 成本與滑價參數（與單檔版一致，可依市場調整） ===== */
 const MULT = 200, FEE = 45, TAX = 0.00004, SLIP = 1.5;
-const ENTRY = ['新買', '新賣'],
-      EXIT_L = ['平賣', '強制平倉'],
-      EXIT_S = ['平買', '強制平倉'];
-
-const cvs = document.getElementById('equityChart');
-const tbl = document.getElementById('tbl');
-
-/* ---------- KPI 容器 & 樣式 ---------- */
-let statBox = document.getElementById('stats');
-if (!statBox) {
-  statBox = document.createElement('div');
-  statBox.id = 'stats';
-  statBox.style.maxWidth = '1200px';
-  statBox.style.margin   = '1rem auto';
-  statBox.style.fontSize = '.84rem';
-  statBox.style.lineHeight = '1.4';
-  document.querySelector('header').after(statBox);
-
-  const style = document.createElement('style');
-  style.textContent = `
-    #stats section {margin-bottom:.9rem}
-    #stats h3 {margin:.3rem 0;font-size:.95rem;border-bottom:1px solid #e0e0e0;padding-bottom:.2rem}
-    .stat-grid {display:flex;flex-wrap:wrap;gap:.5rem .8rem}
-    .stat-item {min-width:130px;white-space:nowrap}
-    .stat-key {color:#555}
-    .stat-val {font-weight:600}
-  `;
-  document.head.appendChild(style);
-}
-
-/* ---------- 讀取剪貼簿 / 檔案 ---------- */
-document.getElementById('btn-clip').onclick = async e => {
-  try { analyse(await navigator.clipboard.readText()); flash(e.target); }
-  catch (err) { alert(err.message); }
+const CFG = {
+  feeBothSides   : true,          // 手續費是否雙邊
+  taxOnExitOnly  : true,          // 稅是否只算在出場
+  slipMode       : 'total',       // 'total'：每筆固定扣 SLIP 點；'half-per-fill'：進出各扣半
 };
-document.getElementById('fileInput').onchange = e => {
-  const f = e.target.files[0]; if (!f) return;
-  const read = enc => new Promise((ok, no) => {
+const ENTRY = ['新買','新賣'];
+const EXIT_L = ['平賣','強制平倉'];
+const EXIT_S = ['平買','強制平倉'];
+
+/* ===== UI ===== */
+const filesInput = document.getElementById('filesInput');
+const btnClear   = document.getElementById('btn-clear');
+const tbl        = document.getElementById('tblBatch');
+const thead      = tbl.querySelector('thead');
+const tbody      = tbl.querySelector('tbody');
+
+/* ===== KPI 欄位定義（每組：全部 / 多單 / 空單 都會有） ===== */
+const KPI_ORDER = [
+  ['交易數','n'], ['勝率','winRate'], ['敗率','lossRate'],
+  ['正點數','posPts'], ['負點數','negPts'], ['總點數','sumPts'],
+  ['累積獲利','sumGain'], ['滑價累計獲利','sumGainSlip'],
+  ['單日最大獲利','maxDay'], ['單日最大虧損','minDay'],
+  ['區間最大獲利','maxRunUp'], ['區間最大回撤','maxDrawdown'],
+  ['Profit Factor','pf'], ['平均獲利','avgW'], ['平均虧損','avgL'],
+  ['盈虧比','rr'], ['期望值(每筆)','expectancy'],
+  ['最大連勝','maxWinStreak'], ['最大連敗','maxLossStreak']
+];
+const GROUPS = ['全部','多單','空單'];
+
+/* ===== 動作 ===== */
+filesInput.addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+
+  // 建表頭
+  buildHeader();
+
+  // 逐檔讀取與分析
+  tbody.innerHTML = '';
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    try {
+      const text = await readFileWithFallback(f);
+      const kpi = analyseToKPI(text);
+      appendRow(f.name, kpi);
+    } catch (err) {
+      appendRow(f.name, null, err);
+    }
+  }
+});
+
+btnClear.addEventListener('click', () => {
+  filesInput.value = '';
+  thead.innerHTML = '';
+  tbody.innerHTML = '';
+});
+
+/* ===== 檔案讀取（big5→utf-8 回退） ===== */
+function readFileWithFallback(file) {
+  const read = (enc) => new Promise((ok, no) => {
     const r = new FileReader();
     r.onload  = () => ok(r.result);
     r.onerror = () => no(r.error);
-    enc ? r.readAsText(f, enc) : r.readAsText(f);
+    enc ? r.readAsText(file, enc) : r.readAsText(file);
   });
-  (async () => {
-    try { analyse(await read('big5')); } catch { analyse(await read()); }
-    flash(e.target.parentElement);
+  return (async () => {
+    try { return await read('big5'); } catch { return await read(); }
   })();
-};
+}
 
-/* ---------- 主分析 ---------- */
-function analyse(raw) {
-  const rows = raw.trim().split(/\r?\n/);
-  if (!rows.length) { alert('空檔案'); return; }
-
+/* ===== 解析 → 交易序列 → KPI ===== */
+function analyseToKPI(raw) {
+  const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
   const tsArr = [], tot = [], lon = [], sho = [], sli = [];
   let cum = 0, cumL = 0, cumS = 0, cumSlip = 0;
 
-  rows.forEach((r) => {
-    const [tsRaw, pStr, act] = r.trim().split(/\s+/); if (!act) return;
+  for (const r of rows) {
+    const [tsRaw, pStr, act] = r.trim().split(/\s+/);
+    if (!act) continue;
     const price = +pStr;
 
-    /* 進場 */
+    // 進場
     if (ENTRY.includes(act)) {
       q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw });
-      return;
+      continue;
     }
 
-    /* 出場配對 */
+    // 出場配對 FIFO
     const qi = q.findIndex(o =>
       (o.side === 'L' && EXIT_L.includes(act)) ||
       (o.side === 'S' && EXIT_S.includes(act))
     );
-    if (qi === -1) return;
+    if (qi === -1) continue;
     const pos = q.splice(qi, 1)[0];
 
     const pts  = pos.side === 'L' ? price - pos.pIn : pos.pIn - price;
-    const fee  = FEE * 2, tax = Math.round(price * MULT * TAX);
-    const gain = pts * MULT - fee - tax,
-          gainSlip = gain - SLIP * MULT;
+
+    const fee = (CFG.feeBothSides ? FEE * 2 : FEE);
+    const tax = TAX
+      ? (CFG.taxOnExitOnly
+          ? Math.round(price * MULT * TAX)
+          : Math.round((pos.pIn + price) * MULT * TAX))
+      : 0;
+
+    const gain = pts * MULT - fee - tax;
+
+    const slipMoney = (CFG.slipMode === 'half-per-fill') ? (SLIP * MULT * 2) : (SLIP * MULT);
+    const gainSlip  = gain - slipMoney;
 
     cum += gain; cumSlip += gainSlip;
-    pos.side === 'L' ? cumL += gain : cumS += gain;
+    (pos.side === 'L') ? (cumL += gain) : (cumS += gain);
 
     tr.push({ pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip });
 
     tsArr.push(tsRaw);
     tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
-  });
+  }
 
-  if (!tr.length) { alert('沒有成功配對的交易'); return; }
-
-  renderTable(tr);
-  renderStats(tr, { tot, lon, sho, sli });
-  drawChart(tsArr, tot, lon, sho, sli);
+  return buildKPI(tr, { tot, lon, sho, sli });
 }
 
-/* ---------- KPI flex-grid ---------- */
-function renderStats(tr, seq) {
-  const sum = arr => arr.reduce((a, b) => a + b, 0);
-  const pct = x => (x * 100).toFixed(1) + '%';
+/* ===== KPI 計算（與單檔版一致） ===== */
+function buildKPI(tr, seq) {
+  const sum  = arr => arr.reduce((a,b)=>a+b,0);
+  const pct  = x => (x*100).toFixed(1) + '%';
+  const safeMax = arr => arr.length ? Math.max(...arr) : 0;
+  const safeMin = arr => arr.length ? Math.min(...arr) : 0;
+
   const byDay = list => {
     const m = {};
-    list.forEach(t => { const d = t.tsOut.slice(0, 8); m[d] = (m[d] || 0) + t.gain; });
+    for (const t of list) {
+      const d = (t.tsOut||'').slice(0,8);
+      m[d] = (m[d] || 0) + (t.gain||0);
+    }
     return Object.values(m);
   };
-  const drawUp = s => { let min = s[0], up = 0; s.forEach(v => { min = Math.min(min, v); up = Math.max(up, v - min); }); return up; };
-  const drawDn = s => { let peak = s[0], dn = 0; s.forEach(v => { peak = Math.max(peak, v); dn = Math.min(dn, v - peak); }); return dn; };
 
-  const longs  = tr.filter(t => t.pos.side === 'L');
-  const shorts = tr.filter(t => t.pos.side === 'S');
+  const drawUp = s => {
+    if (!s.length) return 0;
+    let min = s[0], up = 0;
+    for (const v of s) { min = Math.min(min, v); up = Math.max(up, v - min); }
+    return up;
+  };
+  const drawDn = s => {
+    if (!s.length) return 0;
+    let peak = s[0], dn = 0;
+    for (const v of s) { peak = Math.max(peak, v); dn = Math.min(dn, v - peak); }
+    return dn;
+  };
+
+  const streaks = list => {
+    let cw=0, cl=0, mw=0, ml=0;
+    for (const t of list) {
+      if (t.gain > 0) { cw++; cl=0; if(cw>mw) mw=cw; }
+      else if (t.gain < 0) { cl++; cw=0; if(cl>ml) ml=cl; }
+    }
+    return {maxWinStreak:mw, maxLossStreak:ml};
+  };
+
+  const longs  = tr.filter(t => t.pos?.side === 'L');
+  const shorts = tr.filter(t => t.pos?.side === 'S');
 
   const make = (list, cumSeq) => {
+    if (!list.length) {
+      return {
+        n:0, winRate:'0.0%', lossRate:'0.0%',
+        posPts:0, negPts:0, sumPts:0,
+        sumGain:0, sumGainSlip:0,
+        maxDay:0, minDay:0, maxRunUp:0, maxDrawdown:0,
+        pf:'—', avgW:0, avgL:0, rr:'—', expectancy:0,
+        maxWinStreak:0, maxLossStreak:0
+      };
+    }
     const win  = list.filter(t => t.gain > 0);
     const loss = list.filter(t => t.gain < 0);
+
+    const winAmt  = sum(win.map(t => t.gain));
+    const lossAmt = -sum(loss.map(t => t.gain));
+    const pf = lossAmt === 0 ? (winAmt > 0 ? '∞' : '—') : (winAmt / lossAmt).toFixed(2);
+
+    const avgW = win.length  ? (winAmt / win.length) : 0;
+    const avgL = loss.length ? (-lossAmt / loss.length) : 0; // 負值
+    const rr   = (avgL === 0) ? '—' : (Math.abs(avgW / avgL)).toFixed(2);
+
+    const expectancy = (win.length + loss.length)
+      ? (winAmt - lossAmt) / (win.length + loss.length)
+      : 0;
+
+    const {maxWinStreak, maxLossStreak} = streaks(list);
+
     return {
-      '交易數'        : list.length,
-      '勝率'          : pct(win.length  / (list.length || 1)),
-      '敗率'          : pct(loss.length / (list.length || 1)),
-      '正點數'        : sum(win .map(t => t.pts)),
-      '負點數'        : sum(loss.map(t => t.pts)),
-      '總點數'        : sum(list.map(t => t.pts)),
-      '累積獲利'      : sum(list.map(t => t.gain)),
-      '滑價累計獲利'  : sum(list.map(t => t.gainSlip)),
-      '單日最大獲利'  : Math.max(...byDay(list)),
-      '單日最大虧損'  : Math.min(...byDay(list)),
-      '區間最大獲利'  : drawUp(cumSeq),
-      '區間最大回撤'  : drawDn(cumSeq)
+      n: list.length,
+      winRate: pct(win.length / list.length),
+      lossRate: pct(loss.length / list.length),
+      posPts: sum(win.map(t=>t.pts)),
+      negPts: sum(loss.map(t=>t.pts)),
+      sumPts: sum(list.map(t=>t.pts)),
+      sumGain: sum(list.map(t=>t.gain)),
+      sumGainSlip: sum(list.map(t=>t.gainSlip)),
+      maxDay: safeMax(byDay(list)),
+      minDay: safeMin(byDay(list)),
+      maxRunUp: drawUp(cumSeq),
+      maxDrawdown: drawDn(cumSeq),
+      pf, avgW, avgL, rr, expectancy,
+      maxWinStreak, maxLossStreak
     };
   };
 
-  const stats = {
-    '全部': make(tr     , seq.tot),
-    '多單': make(longs  , seq.lon),
-    '空單': make(shorts , seq.sho)
+  return {
+    全部: make(tr, seq.tot||[]),
+    多單: make(longs, seq.lon||[]),
+    空單: make(shorts, seq.sho||[])
   };
-
-  /* 輸出 HTML */
-  let html = '';
-  Object.entries(stats).forEach(([title, obj]) => {
-    html += `<section><h3>${title}</h3><div class="stat-grid">`;
-    Object.entries(obj).forEach(([k, v]) => {
-      html += `<div class="stat-item"><span class="stat-key">${k}</span>：<span class="stat-val">${fmt(v)}</span></div>`;
-    });
-    html += '</div></section>';
-  });
-  statBox.innerHTML = html;
 }
 
-/* ---------- 交易紀錄表 ---------- */
-function renderTable(list) {
-  const body = tbl.querySelector('tbody'); body.innerHTML = '';
-  list.forEach((t, i) => {
-    body.insertAdjacentHTML('beforeend', `
-      <tr>
-        <td rowspan="2">${i + 1}</td>
-        <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td><td>${t.pos.side === 'L' ? '新買' : '新賣'}</td>
-        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
-      </tr>
-      <tr>
-        <td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td><td>${t.pos.side === 'L' ? '平賣' : '平買'}</td>
-        <td>${fmt(t.pts)}</td><td>${fmt(FEE * 2)}</td><td>${fmt(Math.round(t.priceOut * MULT * TAX))}</td>
-        <td>${fmt(t.gain)}</td><td>${fmt(sumUpTo(list, i, 'gain'))}</td>
-        <td>${fmt(t.gainSlip)}</td><td>${fmt(sumUpTo(list, i, 'gainSlip'))}</td>
-      </tr>
-    `);
-  });
-  tbl.hidden = false;
+/* ===== 表頭與列渲染 ===== */
+function buildHeader() {
+  // 產生一列扁平表頭：檔名 + 各組KPI（前綴）
+  const cells = ['<th class="nowrap">檔名</th>'];
+  for (const g of GROUPS) {
+    for (const [label] of KPI_ORDER) {
+      cells.push(`<th class="nowrap">${g}-${label}</th>`);
+    }
+  }
+  thead.innerHTML = `<tr>${cells.join('')}</tr>`;
 }
 
-/* ---------- 畫圖 ---------- */
-let chart;
-function drawChart(tsArr, T, L, S, P) {
-  if (chart) chart.destroy();
+function appendRow(filename, kpi, err) {
+  if (!kpi) {
+    const colSpan = 1 + GROUPS.length * KPI_ORDER.length;
+    const row = `<tr><td class="nowrap">${escapeHTML(filename)}</td><td colspan="${colSpan-1}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+    return;
+  }
 
-  /* 月份序列 (26 個月) */
-  const ym2Date = ym => new Date(+ym.slice(0, 4), +ym.slice(4, 6) - 1);
-  const addM    = (d, n) => new Date(d.getFullYear(), d.getMonth() + n);
-  const start   = addM(ym2Date(tsArr[0].slice(0, 6)), -1);
-  const months  = [];
-  for (let d = start; months.length < 26; d = addM(d, 1))
-    months.push(`${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`);
-  const mIdx = {}; months.forEach((m, i) => mIdx[m.replace('/', '')] = i);
-
-  /* X 軸座標：月序 + 月內比例 */
-  const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
-  const X = tsArr.map(ts => {
-    const y  = +ts.slice(0, 4), m = +ts.slice(4, 6), d = +ts.slice(6, 8),
-          hh = +ts.slice(8,10),  mm= +ts.slice(10,12);
-    return mIdx[ts.slice(0, 6)] + (d - 1 + (hh + mm / 60) / 24) / daysInMonth(y, m);
-  });
-
-  const maxI = T.indexOf(Math.max(...T));
-  const minI = T.indexOf(Math.min(...T));
-
-  /* 背景條 + 月份文字 */
-  const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
-    ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';
-    ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
-  const mmLabel={id:'mmLabel',afterDraw(c){const{ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
-    ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
-    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));ctx.restore();}};
-
-  /* 線與標籤 */
-  const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,
-    pointRadius:4,pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1});
-  const mkLast=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
-    datalabels:{display:true,anchor:'center',align:'right',offset:8,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
-  const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:6,
-    pointBackgroundColor:col,pointBorderColor:col,pointBorderWidth:1,
-    datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',offset:8,
-      formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
-
-  chart = new Chart(cvs, {
-    type:'line',
-    data:{
-      labels:X,
-      datasets:[
-        mkLine(T,'#fbc02d'),    // 總
-        mkLine(L,'#d32f2f'),    // 多
-        mkLine(S,'#2e7d32'),    // 空
-        mkLine(P,'#212121'),    // 滑價累計獲利
-
-        mkLast(T,'#fbc02d'), mkLast(L,'#d32f2f'),
-        mkLast(S,'#2e7d32'), mkLast(P,'#212121'),
-
-        mkMark(T,maxI,'#d32f2f'), mkMark(T,minI,'#2e7d32')
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      layout:{padding:{bottom:42,right:60}},
-      plugins:{
-        legend:{display:false},
-        tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}},
-        datalabels:{display:false}
-      },
-      scales:{
-        x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
-        y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
-      }
-    },
-    plugins:[stripe,mmLabel,ChartDataLabels]
-  });
+  const tds = [`<td class="nowrap">${escapeHTML(filename)}</td>`];
+  for (const g of GROUPS) {
+    const obj = kpi[g] || {};
+    for (const [, key] of KPI_ORDER) {
+      tds.push(`<td>${fmt(obj[key])}</td>`);
+    }
+  }
+  tbody.insertAdjacentHTML('beforeend', `<tr>${tds.join('')}</tr>`);
 }
 
-/* ---------- 工具 ---------- */
-const fmt   = n => typeof n==='number' ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : n;
-const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
-function flash(el){el.classList.add('flash');setTimeout(()=>el.classList.remove('flash'),600);}
-function sumUpTo(arr, idx, key){return arr.slice(0, idx + 1).reduce((a,b)=>a + b[key], 0);}
+/* ===== 小工具 ===== */
+const fmt = n => (typeof n==='number' && isFinite(n))
+  ? n.toLocaleString('zh-TW', { maximumFractionDigits: 2 })
+  : (n ?? '—');
+
+function escapeHTML(s='') {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
