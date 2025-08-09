@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>三劍客台指期策略分析（批量版）</title>
+
+  <link rel="stylesheet" href="style.css" />
+
+  <style>
+    /* 批量表格專用微調 */
+    .toolbar{max-width:1200px;margin:1rem auto;display:flex;gap:.6rem;align-items:center}
+    .hint{color:#666;font-size:.86rem}
+    table.sticky th:first-child, table.sticky td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
+    table.sticky thead th:first-child { z-index: 2; background:#fafafa; }
+    .nowrap{ white-space:nowrap }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>三劍客台指期策略分析（批量版）</h1>
+    <div class="btn-group">
+      <label class="btn primary">選擇多個檔案
+        <input type="file" id="filesInput" accept=".txt,.TF" multiple hidden />
+      </label>
+      <button id="btn-clear" class="btn">清空結果</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：前面顯示檔名，後面依序顯示 <b>全部 / 多單 / 空單</b> 的所有 KPI。</div>
+  </div>
+
+  <h2 class="sub">彙總結果</h2>
+  <div style="max-width:1200px;margin:auto;overflow:auto;">
+    <table id="tblBatch" class="sticky">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script type="module" src="app-multi.js"></script>
+</body>
+</html>
