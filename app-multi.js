@@ -14,6 +14,7 @@ const tbody      = tbl.querySelector('tbody');
 const cvs        = document.getElementById('equityChart');
 const loadStat   = document.getElementById('loadStat');
 const tradesBody = document.getElementById('tradesBody');
+const kpiGrid    = document.getElementById('kpiGrid');
 
 let chart;
 
@@ -31,7 +32,7 @@ const KPI_ORDER = [
 const GROUPS = ['全部','多單','空單'];
 
 /* ===== 狀態（排序/畫圖/檔案參考） ===== */
-let rowsData = []; // { filename, fileRef, kpi, sortCache, equitySeq?, tsSeq?, trades? }
+let rowsData = []; // { filename, shortName, paramsText, fileRef, kpi, sortCache, equitySeq?, tsSeq?, trades? }
 
 /* ===== 事件：選檔（逐檔 await） ===== */
 filesInput.addEventListener('change', async (e) => {
@@ -44,35 +45,36 @@ filesInput.addEventListener('change', async (e) => {
   updateLoadStat(0, files.length, 0);
 
   let failed = 0;
-
-  // 第一個可用檔，解析完整（含序列與交易）
   let firstDrawn = false;
 
   for (const [idx, f] of files.entries()) {
     try {
-      // 第一筆做完整資料，其餘先算 KPI 以省記憶體
+      const { shortName, paramsText } = parseFilename(f.name);
       const needFull = !firstDrawn;
       const text = await readFileWithFallback(f);
       const { kpi, equitySeq, tsSeq, trades } = analyse(text, { needFull });
 
       rowsData.push({
-        filename: f.name, fileRef: f, kpi, sortCache: buildSortCache(kpi),
+        filename: f.name, shortName, paramsText, fileRef: f,
+        kpi, sortCache: buildSortCache(kpi),
         equitySeq: needFull ? equitySeq : null,
         tsSeq:     needFull ? tsSeq     : null,
         trades:    needFull ? trades    : null
       });
 
-      appendRow(f.name, kpi);
+      appendRow(shortName, paramsText, kpi);
 
       if (needFull && tsSeq && tsSeq.length && equitySeq?.tot?.length) {
         drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
         renderTrades(trades);
+        renderTopKPI(kpi);
         firstDrawn = true;
       }
     } catch (err) {
       console.error('解析失敗：', f.name, err);
-      rowsData.push({ filename: f.name, fileRef: f, kpi: null, sortCache: null });
-      appendErrorRow(f.name, err);
+      const { shortName, paramsText } = parseFilename(f.name);
+      rowsData.push({ filename: f.name, shortName, paramsText, fileRef: f, kpi: null, sortCache: null });
+      appendErrorRow(shortName, paramsText, err);
       failed++;
     } finally {
       updateLoadStat(idx+1, files.length, failed);
@@ -88,6 +90,7 @@ btnClear.addEventListener('click', () => {
   updateLoadStat(0,0,0);
   if (chart) chart.destroy();
   tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">尚未載入</td></tr>`;
+  kpiGrid.innerHTML = '';
 });
 
 /* ===== 讀檔（big5→utf-8 回退） ===== */
@@ -99,6 +102,15 @@ function readFileWithFallback(file) {
     enc ? r.readAsText(file, enc) : r.readAsText(file);
   });
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
+}
+
+/* ===== 檔名解析：短檔名 + 參數列 ===== */
+function parseFilename(name='') {
+  const base = name.replace(/\.[^.]+$/, ''); // 去副檔名
+  const parts = base.split('_').filter(Boolean);
+  const short = parts.slice(0,3).join('_') || base;         // 取前三段：日期_時間_策略縮碼
+  const params = parts.slice(3).join(' / ') || '—';         // 其餘段落當參數列
+  return { shortName: short, paramsText: params };
 }
 
 /* ===== 解析：可選擇只算 KPI 或完整（序列 + 交易） ===== */
@@ -133,11 +145,11 @@ function analyse(raw, opts={ needFull:false }) {
     const slipMoney = (CFG.slipMode === 'half-per-fill') ? (SLIP * MULT * 2) : (SLIP * MULT);
     const gainSlip  = gain - slipMoney;
 
-    cum += gain; cumSlip += gainSlip;
-    (pos.side === 'L') ? (cumL += gain) : (cumS += gain);
-
     const t = { pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip, fee, tax };
     tr.push(t);
+
+    cum += gain; cumSlip += gainSlip;
+    (pos.side === 'L') ? (cumL += gain) : (cumS += gain);
 
     if (opts.needFull) {
       tsArr.push(tsRaw);
@@ -197,14 +209,17 @@ function emptyStats(){
     pf:'—', avgW:0, avgL:0, rr:'—', expectancy:0, maxWinStreak:0, maxLossStreak:0 };
 }
 
-/* ===== 表頭（可排序） ===== */
+/* ===== 表頭（可排序；含短檔名/參數） ===== */
 function buildHeader(){
-  const cells = ['<th class="nowrap sortable" data-key="__filename">檔名</th>'];
+  const cells = [
+    '<th class="nowrap sortable" data-key="__filename">短檔名</th>',
+    '<th class="nowrap sortable" data-key="__params">參數</th>'
+  ];
   for (const g of GROUPS) for (const [label, key] of KPI_ORDER)
     cells.push(`<th class="nowrap sortable" data-key="${g}.${key}">${g}-${label}</th>`);
   thead.innerHTML = `<tr>${cells.join('')}</tr>`;
 
-  // 排序事件：排序後即時切換到第一列資料（圖 + 交易表）
+  // 排序事件：排序後即時切換到第一列資料（圖 + 交易表 + KPI）
   let currentKey = null, currentDir = 'asc';
   thead.querySelectorAll('th.sortable').forEach(th=>{
     th.addEventListener('click', async ()=>{
@@ -214,7 +229,7 @@ function buildHeader(){
       thead.querySelectorAll('th.sortable').forEach(h=>h.classList.remove('asc','desc'));
       th.classList.add(currentDir);
       sortRows(currentKey, currentDir);
-      await redrawFromTopRow(); // ← 這行會確保上方同步更新
+      await redrawFromTopRow();
     });
   });
 }
@@ -224,7 +239,6 @@ function buildSortCache(kpi){
   const flat = {};
   for (const g of GROUPS) for (const [,key] of KPI_ORDER)
     flat[`${g}.${key}`] = parseForSort(kpi?.[g]?.[key]);
-  flat['__filename'] = '';
   return flat;
 }
 function parseForSort(v){
@@ -241,15 +255,19 @@ function sortRows(key, dir){
   const factor = dir==='asc' ? 1 : -1;
   rowsData.sort((a,b)=>{
     if (key === '__filename'){
-      const av=a.filename.toLowerCase(), bv=b.filename.toLowerCase();
+      const av=a.shortName.toLowerCase(), bv=b.shortName.toLowerCase();
+      return (av<bv?-1:av>bv?1:0)*factor;
+    }
+    if (key === '__params'){
+      const av=a.paramsText.toLowerCase(), bv=b.paramsText.toLowerCase();
       return (av<bv?-1:av>bv?1:0)*factor;
     }
     const av = a.sortCache?.[key] ?? -Infinity;
     const bv = b.sortCache?.[key] ?? -Infinity;
-    return (av - bv) * factor || a.filename.localeCompare(b.filename)*factor;
+    return (av - bv) * factor || a.shortName.localeCompare(b.shortName)*factor;
   });
   tbody.innerHTML = '';
-  for (const r of rowsData) r.kpi ? appendRow(r.filename, r.kpi) : appendErrorRow(r.filename, new Error('解析失敗'));
+  for (const r of rowsData) r.kpi ? appendRow(r.shortName, r.paramsText, r.kpi) : appendErrorRow(r.shortName, r.paramsText, new Error('解析失敗'));
 }
 
 /* ===== 依第一列重畫（若未載入過，動態讀檔解析） ===== */
@@ -258,9 +276,9 @@ async function redrawFromTopRow(){
   if (!first) {
     if (chart) chart.destroy();
     tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">沒有可用資料</td></tr>`;
+    kpiGrid.innerHTML = '';
     return;
   }
-  // 若沒有序列與交易，現場重算一次（只對第一列做）
   if (!first.tsSeq || !first.equitySeq || !first.trades) {
     try {
       const text = await readFileWithFallback(first.fileRef);
@@ -274,24 +292,28 @@ async function redrawFromTopRow(){
   const { tsSeq, equitySeq:{tot,lon,sho,sli}, trades } = first;
   drawChart(tsSeq, tot, lon, sho, sli);
   renderTrades(trades);
+  renderTopKPI(first.kpi);
 }
 
 /* ===== 渲染下方表 ===== */
-function appendRow(filename, kpi){
-  const tds = [`<td class="nowrap">${escapeHTML(filename)}</td>`];
+function appendRow(shortName, paramsText, kpi){
+  const tds = [
+    `<td class="nowrap" title="${escapeHTML(shortName)}">${escapeHTML(shortName)}</td>`,
+    `<td class="nowrap" title="${escapeHTML(paramsText)}">${escapeHTML(paramsText)}</td>`
+  ];
   for (const g of GROUPS) {
     const obj = kpi[g] || {};
     for (const [, key] of KPI_ORDER) tds.push(`<td>${fmt(obj[key])}</td>`);
   }
   tbody.insertAdjacentHTML('beforeend', `<tr>${tds.join('')}</tr>`);
 }
-function appendErrorRow(filename, err){
-  const colSpan = 1 + GROUPS.length * KPI_ORDER.length;
-  const row = `<tr><td class="nowrap">${escapeHTML(filename)}</td><td colspan="${colSpan-1}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
+function appendErrorRow(shortName, paramsText, err){
+  const colSpan = 2 + GROUPS.length * KPI_ORDER.length;
+  const row = `<tr><td class="nowrap">${escapeHTML(shortName)}</td><td class="nowrap">${escapeHTML(paramsText)}</td><td colspan="${colSpan-2}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 上方：圖表 + 交易明細 ===== */
+/* ===== 上方：圖表 + 交易明細 + KPI ===== */
 function drawChart(tsArr, T, L, S, P){
   try{
     if (chart) chart.destroy();
@@ -351,6 +373,19 @@ function renderTrades(trades){
   tradesBody.innerHTML = rows;
 }
 
+function renderTopKPI(kpi){
+  if (!kpi) { kpiGrid.innerHTML=''; return; }
+  const groups = ['全部','多單','空單'];
+  const html = groups.map(g=>{
+    const obj = kpi[g] || {};
+    const items = KPI_ORDER.map(([label,key]) => `
+      <div class="kpi-item"><span class="kpi-key">${label}</span>：<span class="kpi-val">${fmt(obj[key])}</span></div>
+    `).join('');
+    return `<div class="kpi-card"><h3>${g}</h3>${items}</div>`;
+  }).join('');
+  kpiGrid.innerHTML = html;
+}
+
 /* ===== 小工具 ===== */
 function updateLoadStat(done, total, failed){
   if (!total) { loadStat.textContent = ''; return; }
@@ -358,4 +393,4 @@ function updateLoadStat(done, total, failed){
 }
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : (n ?? '—');
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
-function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
