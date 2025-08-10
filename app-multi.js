@@ -28,35 +28,44 @@ const KPI_ORDER = [
 ];
 const GROUPS = ['全部','多單','空單'];
 
-/* ===== 狀態（給排序用） ===== */
-let rowsData = []; // 每筆：{ filename, kpi, sortCache, equitySeq, tsSeq }
+/* ===== 狀態（給排序與畫圖用） ===== */
+let rowsData = []; // { filename, kpi, sortCache, equitySeq, tsSeq }
 
-/* ===== 檔案事件 ===== */
+/* ===== 事件：選檔 ===== */
 filesInput.addEventListener('change', async (e) => {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
+  try {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-  // 建表頭（含排序）
-  buildHeader();
+    // 建表頭（含排序）
+    buildHeader();
 
-  rowsData = [];
-  tbody.innerHTML = '';
+    rowsData = [];
+    tbody.innerHTML = '';
 
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    try {
-      const text = await readFileWithFallback(f);
-      const { kpi, equitySeq, tsSeq } = analyse(text, { needSeq: i === 0 }); // 第一筆要保留序列畫圖
-      rowsData.push({ filename: f.name, kpi, sortCache: buildSortCache(kpi), equitySeq, tsSeq });
-      appendRow(f.name, kpi);
-      if (i === 0) drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
-    } catch (err) {
-      rowsData.push({ filename: f.name, kpi: null, sortCache: null });
-      appendErrorRow(f.name, err);
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      try {
+        const text = await readFileWithFallback(f);
+        // 第一筆保留序列用來畫圖；其餘只算 KPI
+        const needSeq = (i === 0);
+        const { kpi, equitySeq, tsSeq } = analyse(text, { needSeq });
+        rowsData.push({ filename: f.name, kpi, sortCache: buildSortCache(kpi), equitySeq, tsSeq });
+        appendRow(f.name, kpi);
+        if (needSeq) drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
+      } catch (err) {
+        console.error('解析失敗：', f.name, err);
+        rowsData.push({ filename: f.name, kpi: null, sortCache: null });
+        appendErrorRow(f.name, err);
+      }
     }
+  } catch (err) {
+    alert('讀取檔案時發生錯誤：' + (err?.message || err));
+    console.error(err);
   }
 });
 
+/* ===== 事件：清空 ===== */
 btnClear.addEventListener('click', () => {
   filesInput.value = '';
   thead.innerHTML = '';
@@ -65,7 +74,7 @@ btnClear.addEventListener('click', () => {
   if (chart) chart.destroy();
 });
 
-/* ===== 讀檔（big5→utf-8 回退） ===== */
+/* ===== 讀檔（big5→utf-8 回退；如 big5 不支援會自動改用預設） ===== */
 function readFileWithFallback(file) {
   const read = (enc) => new Promise((ok, no) => {
     const r = new FileReader();
@@ -73,12 +82,10 @@ function readFileWithFallback(file) {
     r.onerror = () => no(r.error);
     enc ? r.readAsText(file, enc) : r.readAsText(file);
   });
-  return (async () => {
-    try { return await read('big5'); } catch { return await read(); }
-  })();
+  return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 解析：回傳 KPI 與（可選）收益序列 ===== */
+/* ===== 解析成交易序列 + KPI ===== */
 function analyse(raw, opts={needSeq:false}) {
   const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
@@ -86,8 +93,9 @@ function analyse(raw, opts={needSeq:false}) {
   let cum = 0, cumL = 0, cumS = 0, cumSlip = 0;
 
   for (const r of rows) {
-    const [tsRaw, pStr, act] = r.trim().split(/\s+/);
-    if (!act) continue;
+    const parts = r.trim().split(/\s+/);
+    if (parts.length < 3) continue;
+    const [tsRaw, pStr, act] = parts;
     const price = +pStr;
 
     if (ENTRY.includes(act)) { q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw }); continue; }
@@ -97,8 +105,8 @@ function analyse(raw, opts={needSeq:false}) {
       (o.side === 'S' && EXIT_S.includes(act))
     );
     if (qi === -1) continue;
-    const pos = q.splice(qi, 1)[0];
 
+    const pos = q.splice(qi, 1)[0];
     const pts  = pos.side === 'L' ? price - pos.pIn : pos.pIn - price;
 
     const fee = (CFG.feeBothSides ? FEE * 2 : FEE);
@@ -120,22 +128,17 @@ function analyse(raw, opts={needSeq:false}) {
   }
 
   const kpi = buildKPI(tr, { tot, lon, sho, sli });
-  const equitySeq = opts.needSeq ? { tot, lon, sho, sli } : null;
-  const tsSeq = opts.needSeq ? tsArr : null;
-  return { kpi, equitySeq, tsSeq };
+  return { kpi, equitySeq: opts.needSeq ? { tot, lon, sho, sli } : null, tsSeq: opts.needSeq ? tsArr : null };
 }
 
-/* ===== KPI ===== */
+/* ===== KPI 計算 ===== */
 function buildKPI(tr, seq) {
   const sum = a => a.reduce((x,y)=>x+y,0);
   const pct = x => (x*100).toFixed(1)+'%';
   const safeMax = a => a.length ? Math.max(...a) : 0;
   const safeMin = a => a.length ? Math.min(...a) : 0;
 
-  const byDay = list => {
-    const m={}; for (const t of list){ const d = (t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0); }
-    return Object.values(m);
-  };
+  const byDay = list => { const m={}; for (const t of list){ const d=(t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0);} return Object.values(m); };
   const runUp = s => { if(!s.length) return 0; let m=s[0], up=0; for(const v of s){ m=Math.min(m,v); up=Math.max(up,v-m);} return up; };
   const drawDn= s => { if(!s.length) return 0; let p=s[0], dn=0; for(const v of s){ p=Math.max(p,v); dn=Math.min(dn,v-p);} return dn; };
   const streaks = list => { let cw=0,cl=0,mw=0,ml=0; for(const t of list){ if(t.gain>0){cw++;cl=0;mw=Math.max(mw,cw);} else if(t.gain<0){cl++;cw=0;ml=Math.max(ml,cl);} } return {mw,ml}; };
@@ -179,62 +182,62 @@ function buildHeader(){
     cells.push(`<th class="nowrap sortable" data-key="${g}.${key}">${g}-${label}</th>`);
   thead.innerHTML = `<tr>${cells.join('')}</tr>`;
 
-  // 事件：點表頭排序
+  // 排序事件
   let currentKey = null, currentDir = 'asc';
   thead.querySelectorAll('th.sortable').forEach(th=>{
     th.addEventListener('click', ()=>{
       const key = th.dataset.key;
-      // 交替方向
       if (currentKey === key) currentDir = (currentDir==='asc' ? 'desc' : 'asc');
       else { currentKey = key; currentDir = 'asc'; }
-      // 樣式
       thead.querySelectorAll('th.sortable').forEach(h=>h.classList.remove('asc','desc'));
       th.classList.add(currentDir);
-
       sortRows(currentKey, currentDir);
+      // 若你希望排序後以「第一列」重畫圖：取消下一行註解
+      // redrawFromTopRow();
     });
   });
 }
 
-/* ===== 排序實作 ===== */
+/* ===== 排序 ===== */
 function buildSortCache(kpi){
   const flat = {};
-  for (const g of GROUPS) {
-    for (const [,key] of KPI_ORDER) {
-      flat[`${g}.${key}`] = parseForSort(kpi?.[g]?.[key]);
-    }
-  }
-  flat['__filename'] = ''; // 檔名用時現取
+  for (const g of GROUPS) for (const [,key] of KPI_ORDER)
+    flat[`${g}.${key}`] = parseForSort(kpi?.[g]?.[key]);
+  flat['__filename'] = '';
   return flat;
 }
 function parseForSort(v){
   if (v===null || v===undefined) return -Infinity;
   if (typeof v === 'number') return v;
   if (typeof v === 'string'){
-    if (v.endsWith('%')) return parseFloat(v);
+    if (v.endsWith?.('%')) return parseFloat(v);
     if (v === '—' || v === '∞') return v === '∞' ? Number.POSITIVE_INFINITY : -Infinity;
-    return parseFloat(v.replaceAll(',',''));
+    return parseFloat(v.replaceAll?.(',','') ?? v);
   }
   return +v || 0;
 }
 function sortRows(key, dir){
   const factor = dir==='asc' ? 1 : -1;
   rowsData.sort((a,b)=>{
-    let av, bv;
-    if (key === '__filename'){ av = a.filename.toLowerCase(); bv = b.filename.toLowerCase(); return av < bv ? -1*factor : av > bv ? 1*factor : 0; }
-    av = a.sortCache?.[key] ?? -Infinity;
-    bv = b.sortCache?.[key] ?? -Infinity;
+    if (key === '__filename'){
+      const av=a.filename.toLowerCase(), bv=b.filename.toLowerCase();
+      return (av<bv?-1:av>bv?1:0)*factor;
+    }
+    const av = a.sortCache?.[key] ?? -Infinity;
+    const bv = b.sortCache?.[key] ?? -Infinity;
     return (av - bv) * factor || a.filename.localeCompare(b.filename)*factor;
   });
-  // 重畫表格
   tbody.innerHTML = '';
-  for (const r of rowsData) {
-    if (!r.kpi) appendErrorRow(r.filename, new Error('解析失敗'));
-    else appendRow(r.filename, r.kpi);
-  }
+  for (const r of rowsData) r.kpi ? appendRow(r.filename, r.kpi) : appendErrorRow(r.filename, new Error('解析失敗'));
+}
+function redrawFromTopRow(){
+  const first = rowsData.find(r => !!r.equitySeq && !!r.tsSeq);
+  if (!first) return;
+  const { tsSeq, equitySeq: { tot, lon, sho, sli } } = first;
+  drawChart(tsSeq, tot, lon, sho, sli);
 }
 
-/* ===== 填表 ===== */
+/* ===== 渲染表 ===== */
 function appendRow(filename, kpi){
   const tds = [`<td class="nowrap">${escapeHTML(filename)}</td>`];
   for (const g of GROUPS) {
@@ -249,53 +252,44 @@ function appendErrorRow(filename, err){
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 圖表（只畫第一筆） ===== */
+/* ===== 畫圖（只畫第一筆） ===== */
 function drawChart(tsArr, T, L, S, P){
-  if (chart) chart.destroy();
-  if (!tsArr?.length) return;
+  try{
+    if (chart) chart.destroy();
+    if (!tsArr?.length) return;
 
-  // X 軸（月序 + 月內比例）
-  const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
-  const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
-  const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
-  const months=[]; for(let d=start; months.length<26; d=addM(d,1)) months.push(`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`);
-  const mIdx={}; months.forEach((m,i)=>mIdx[m.replace('/','')]=i);
-  const daysInMonth=(y,m)=> new Date(y,m,0).getDate();
-  const X = tsArr.map(ts=>{
-    const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8), hh=+ts.slice(8,10), mm=+ts.slice(10,12);
-    return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24) / daysInMonth(y,m);
-  });
+    // X 軸（月序 + 月內比例）
+    const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
+    const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
+    const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
+    const months=[]; for(let d=start; months.length<26; d=addM(d,1)) months.push(`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`);
+    const mIdx={}; months.forEach((m,i)=>mIdx[m.replace('/','')]=i);
+    const daysInMonth=(y,m)=> new Date(y,m,0).getDate();
+    const X = tsArr.map(ts=>{
+      const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8), hh=+ts.slice(8,10), mm=+ts.slice(10,12);
+      return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24) / daysInMonth(y,m);
+    });
 
-  const maxI = T.indexOf(Math.max(...T));
-  const minI = T.indexOf(Math.min(...T));
+    const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+      ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
 
-  const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
-    ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
-  const mmLabel={id:'mmLabel',afterDraw(c){const{ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
-    ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
-    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));ctx.restore();}};
+    const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:0});
 
-  const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:0});
-  const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:5,pointBackgroundColor:col,pointBorderColor:col});
-
-  chart = new Chart(cvs, {
-    type:'line',
-    data:{
-      labels:X,
-      datasets:[
-        mkLine(T,'#fbc02d'), mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121'),
-        mkMark(T,maxI,'#d32f2f'), mkMark(T,minI,'#2e7d32')
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      layout:{padding:{bottom:42,right:60}},
-      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}} ,
-      scales:{ x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
-               y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}} }
-    },
-    plugins:[stripe,mmLabel,ChartDataLabels]
-  });
+    chart = new Chart(cvs, {
+      type:'line',
+      data:{ labels:X, datasets:[ mkLine(T,'#fbc02d'), mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121') ] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{padding:{bottom:42,right:60}},
+        plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}} },
+        scales:{ x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
+                 y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}} }
+      },
+      plugins:[stripe]
+    });
+  }catch(err){
+    console.error('畫圖發生錯誤：', err);
+  }
 }
 
 /* ===== 工具 ===== */
