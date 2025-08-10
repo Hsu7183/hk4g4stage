@@ -5,31 +5,31 @@
   <title>三劍客台指期策略分析｜入口</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    .gate{max-width:1200px;margin:1.6rem auto;display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:.6rem;padding:1rem 1.2rem}
-    .card h2{margin:.2rem 0 0.6rem}
-    .card p{margin:.2rem 0 .9rem;color:#555}
-    .card a{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1rem;border-radius:.4rem;background:var(--primary);color:#fff;text-decoration:none}
-    .card a:hover{background:var(--primary-dark)}
+    body{background:#f5f6f8}
+    main{max-width:980px;margin:2rem auto;padding:0 1rem}
+    h1{font-size:1.5rem;margin:0 0 1rem}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:.7rem;box-shadow:0 8px 20px rgba(0,0,0,.06);padding:1rem}
+    .card h2{margin:.2rem 0 .4rem;font-size:1.1rem}
+    .card p{margin:0 0 .8rem;color:#555}
+    a.btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:.55rem 1.05rem;border-radius:.6rem}
   </style>
 </head>
 <body>
-  <header>
+  <main>
     <h1>三劍客台指期策略分析｜入口</h1>
-  </header>
-
-  <div class="gate">
-    <div class="card">
-      <h2>單檔分析</h2>
-      <p>貼上或選擇 <b>1 個</b> TXT，顯示交易紀錄表、KPI 與收益曲線。</p>
-      <a href="index-single.html">進入單檔版</a>
+    <div class="grid">
+      <div class="card">
+        <h2>單檔分析</h2>
+        <p>貼上或選 1 個 TXT；顯示收益曲線、KPI 與交易表。</p>
+        <a class="btn" href="single.html">進入單檔版</a>
+      </div>
+      <div class="card">
+        <h2>批量分析</h2>
+        <p>一次載入最多 ~1,000 個 TXT；支援排序、第一列圖表/交易/KPI。</p>
+        <a class="btn" href="multi.html">進入批量版</a>
+      </div>
     </div>
-
-    <div class="card">
-      <h2>批量分析</h2>
-      <p>一次選取最多 <b>~1,000</b> 個 TXT，每檔一列、顯示全部 / 多單 / 空單 KPI（不含圖表）。</p>
-      <a href="index-multi.html">進入批量版</a>
-    </div>
-  </div>
+  </main>
 </body>
 </html>
