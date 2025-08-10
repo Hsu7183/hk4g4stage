@@ -3,33 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <title>三劍客台指期策略分析｜入口</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
-  <style>
-    body{background:#f5f6f8}
-    main{max-width:980px;margin:2rem auto;padding:0 1rem}
-    h1{font-size:1.5rem;margin:0 0 1rem}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
-    .card{background:#fff;border:1px solid #e5e7eb;border-radius:.7rem;box-shadow:0 8px 20px rgba(0,0,0,.06);padding:1rem}
-    .card h2{margin:.2rem 0 .4rem;font-size:1.1rem}
-    .card p{margin:0 0 .8rem;color:#555}
-    a.btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:.55rem 1.05rem;border-radius:.6rem}
-  </style>
 </head>
 <body>
-  <main>
+  <header class="wrap">
     <h1>三劍客台指期策略分析｜入口</h1>
-    <div class="grid">
-      <div class="card">
-        <h2>單檔分析</h2>
-        <p>貼上或選 1 個 TXT；顯示收益曲線、參數、KPI 與交易表。</p>
-        <a class="btn" href="single.html">進入單檔版</a>
-      </div>
-      <div class="card">
-        <h2>批量分析</h2>
-        <p>一次載入最多 ~1,000 個 TXT；排序後上方自動切換第一列的圖／交易／KPI／參數。</p>
-        <a class="btn" href="multi.html">進入批量版</a>
-      </div>
-    </div>
+  </header>
+
+  <main class="wrap grid-2">
+    <section class="card">
+      <h2>單檔分析</h2>
+      <p>貼上或選擇 1 個 TXT；顯示參數、交易紀錄、KPI 與收益曲線。</p>
+      <a class="btn primary" href="single.html">進入單檔版</a>
+    </section>
+
+    <section class="card">
+      <h2>批量分析</h2>
+      <p>一次載入最多 ~1,000 個 TXT；顯示第一列圖與交易表、並可排序觀看彙總 KPI。</p>
+      <a class="btn primary" href="multi.html">進入批量版</a>
+    </section>
   </main>
 </body>
 </html>
