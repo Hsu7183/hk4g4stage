@@ -3,67 +3,60 @@
 <head>
   <meta charset="utf-8" />
   <title>三劍客台指期策略分析（批量版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <main class="container">
-    <header>
-      <h1>三劍客台指期策略分析（批量版）</h1>
-      <div class="actions">
-        <label class="btn primary">選擇多個檔案
-          <input type="file" id="filesInput" accept=".txt,.TF" hidden multiple />
-        </label>
-        <button class="btn" id="btn-clear">清空結果</button>
-      </div>
-    </header>
-
-    <div class="panel parambar" id="paramBar" hidden>
-      <span class="tag name" id="pName">—</span>
-      <span class="tag mono" id="pParams">—</span>
-      <span class="muted" id="loadStat" style="margin-left:auto"></span>
+  <div class="container">
+    <div class="toolbar">
+      <label class="btn primary">選擇多個檔案
+        <input type="file" id="filesInput" accept=".txt,.TF" hidden multiple />
+      </label>
+      <button id="btn-clear" class="btn">清空結果</button>
+      <span id="loadStat" class="badge" style="display:none"></span>
     </div>
 
-    <section class="panel">
-      <div class="grid-2">
-        <div>
-          <h2>第一列收益曲線</h2>
-          <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
-        </div>
-        <div>
-          <h2>第一列交易紀錄</h2>
-          <div style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:10px">
-            <table>
-              <thead>
-                <tr>
-                  <th>筆數</th><th>進場時間</th><th>進場價</th>
-                  <th>出場時間</th><th>出場價</th><th>方向</th><th>點數</th>
-                  <th>手續費</th><th>期交稅</th><th>獲利</th><th>累積獲利</th>
-                  <th>滑價獲利</th><th>累積滑價獲利</th>
-                </tr>
-              </thead>
-              <tbody id="tradesBody">
-                <tr><td colspan="13" style="color:#777">尚未載入</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </section>
+    <div class="parambar" id="paramBar" hidden>
+      <span class="name" id="pName"></span>
+      <span class="params" id="pParams"></span>
+    </div>
 
-    <section class="panel">
-      <h2>彙總結果</h2>
-      <div class="muted" style="margin:.25rem 0">
-        表格可點欄位排序；排序後，上方會以第一列檔案重繪圖與交易表。
+    <div class="row">
+      <div class="card2">
+        <h3>第一列收益曲線</h3>
+        <canvas id="equityChart"></canvas>
       </div>
-      <table id="tblBatch">
+      <div class="card2">
+        <h3>第一列交易紀錄</h3>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>筆數</th><th>進場時間</th><th>進場價</th>
+              <th>出場時間</th><th>出場價</th><th>方向</th>
+              <th>點數</th><th>手續費</th><th>期交稅</th>
+              <th>獲利</th><th>累積獲利</th><th>滑價獲利</th><th>累積滑價獲利</th>
+            </tr>
+          </thead>
+          <tbody id="tradesBody"><tr><td colspan="13" style="color:#777">尚未載入</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card2">
+      <h3>彙總結果</h3>
+      <div style="color:#6b7280;font-size:.92rem;margin-bottom:6px">TXT 第一行若為參數則自動識別；載入後，點擊上方表頭可排序，排序完成後會切換第一列視圖。</div>
+      <table id="tblBatch" class="table">
         <thead></thead>
         <tbody></tbody>
       </table>
+    </div>
 
-      <div style="margin-top:12px" id="kpiBlocks"></div>
-    </section>
-  </main>
+    <div class="card2">
+      <h3>第一列數值彙整（全部 / 多單 / 空單）</h3>
+      <div id="kpiBlocks" class="kpi-wrap"></div>
+    </div>
+  </div>
 
   <script src="app-multi.js"></script>
 </body>
