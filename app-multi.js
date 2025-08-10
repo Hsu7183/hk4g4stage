@@ -12,6 +12,7 @@ const tbl        = document.getElementById('tblBatch');
 const thead      = tbl.querySelector('thead');
 const tbody      = tbl.querySelector('tbody');
 const cvs        = document.getElementById('equityChart');
+const loadStat   = document.getElementById('loadStat');
 
 let chart;
 
@@ -28,53 +29,60 @@ const KPI_ORDER = [
 ];
 const GROUPS = ['全部','多單','空單'];
 
-/* ===== 狀態（給排序與畫圖用） ===== */
+/* ===== 狀態（排序/畫圖） ===== */
 let rowsData = []; // { filename, kpi, sortCache, equitySeq, tsSeq }
 
-/* ===== 事件：選檔 ===== */
+/* ===== 事件：選檔（逐檔 await，任何一檔錯也不中斷） ===== */
 filesInput.addEventListener('change', async (e) => {
-  try {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
 
-    // 建表頭（含排序）
-    buildHeader();
+  buildHeader();
+  rowsData = [];
+  tbody.innerHTML = '';
+  updateLoadStat(0, files.length, 0);
 
-    rowsData = [];
-    tbody.innerHTML = '';
+  let success = 0, failed = 0;
 
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      try {
-        const text = await readFileWithFallback(f);
-        // 第一筆保留序列用來畫圖；其餘只算 KPI
-        const needSeq = (i === 0);
-        const { kpi, equitySeq, tsSeq } = analyse(text, { needSeq });
-        rowsData.push({ filename: f.name, kpi, sortCache: buildSortCache(kpi), equitySeq, tsSeq });
-        appendRow(f.name, kpi);
-        if (needSeq) drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
-      } catch (err) {
-        console.error('解析失敗：', f.name, err);
-        rowsData.push({ filename: f.name, kpi: null, sortCache: null });
-        appendErrorRow(f.name, err);
+  // 逐檔處理，第一筆保留序列供畫圖
+  let firstDrawn = false;
+
+  for (const [idx, f] of files.entries()) {
+    try {
+      const text = await readFileWithFallback(f);
+      const needSeq = !firstDrawn;
+      const { kpi, equitySeq, tsSeq } = analyse(text, { needSeq });
+      rowsData.push({ filename: f.name, kpi, sortCache: buildSortCache(kpi), equitySeq, tsSeq });
+      appendRow(f.name, kpi);
+
+      if (needSeq && tsSeq && tsSeq.length && equitySeq?.tot?.length) {
+        drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
+        firstDrawn = true;
       }
+      success++;
+    } catch (err) {
+      console.error('解析失敗：', f.name, err);
+      rowsData.push({ filename: f.name, kpi: null, sortCache: null });
+      appendErrorRow(f.name, err);
+      failed++;
+    } finally {
+      updateLoadStat(idx+1, files.length, failed);
     }
-  } catch (err) {
-    alert('讀取檔案時發生錯誤：' + (err?.message || err));
-    console.error(err);
   }
+
+  // 如果全部失敗，至少顯示一列錯誤說明（上面已逐檔顯示，這裡不用再處理）
 });
 
-/* ===== 事件：清空 ===== */
 btnClear.addEventListener('click', () => {
   filesInput.value = '';
   thead.innerHTML = '';
   tbody.innerHTML = '';
   rowsData = [];
+  updateLoadStat(0,0,0);
   if (chart) chart.destroy();
 });
 
-/* ===== 讀檔（big5→utf-8 回退；如 big5 不支援會自動改用預設） ===== */
+/* ===== 讀檔（big5→utf-8 回退） ===== */
 function readFileWithFallback(file) {
   const read = (enc) => new Promise((ok, no) => {
     const r = new FileReader();
@@ -85,7 +93,7 @@ function readFileWithFallback(file) {
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 解析成交易序列 + KPI ===== */
+/* ===== 解析：回傳 KPI 與（可選）收益序列 ===== */
 function analyse(raw, opts={needSeq:false}) {
   const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
@@ -97,6 +105,7 @@ function analyse(raw, opts={needSeq:false}) {
     if (parts.length < 3) continue;
     const [tsRaw, pStr, act] = parts;
     const price = +pStr;
+    if (!Number.isFinite(price)) continue;
 
     if (ENTRY.includes(act)) { q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw }); continue; }
 
@@ -131,7 +140,7 @@ function analyse(raw, opts={needSeq:false}) {
   return { kpi, equitySeq: opts.needSeq ? { tot, lon, sho, sli } : null, tsSeq: opts.needSeq ? tsArr : null };
 }
 
-/* ===== KPI 計算 ===== */
+/* ===== KPI ===== */
 function buildKPI(tr, seq) {
   const sum = a => a.reduce((x,y)=>x+y,0);
   const pct = x => (x*100).toFixed(1)+'%';
@@ -192,7 +201,7 @@ function buildHeader(){
       thead.querySelectorAll('th.sortable').forEach(h=>h.classList.remove('asc','desc'));
       th.classList.add(currentDir);
       sortRows(currentKey, currentDir);
-      // 若你希望排序後以「第一列」重畫圖：取消下一行註解
+      // 若你希望排序後用「第一列」重畫圖，解除下一行註解
       // redrawFromTopRow();
     });
   });
@@ -258,7 +267,6 @@ function drawChart(tsArr, T, L, S, P){
     if (chart) chart.destroy();
     if (!tsArr?.length) return;
 
-    // X 軸（月序 + 月內比例）
     const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
     const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
     const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
@@ -269,9 +277,6 @@ function drawChart(tsArr, T, L, S, P){
       const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8), hh=+ts.slice(8,10), mm=+ts.slice(10,12);
       return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24) / daysInMonth(y,m);
     });
-
-    const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
-      ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent';ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
 
     const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:0});
 
@@ -284,14 +289,17 @@ function drawChart(tsArr, T, L, S, P){
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}} },
         scales:{ x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
                  y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}} }
-      },
-      plugins:[stripe]
+      }
     });
   }catch(err){
     console.error('畫圖發生錯誤：', err);
   }
 }
 
-/* ===== 工具 ===== */
+/* ===== 小工具 ===== */
+function updateLoadStat(done, total, failed){
+  if (!total) { loadStat.textContent = ''; return; }
+  loadStat.textContent = `載入：${done}/${total}，成功：${done - failed}，失敗：${failed}`;
+}
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : (n ?? '—');
 function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
