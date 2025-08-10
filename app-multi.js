@@ -48,8 +48,7 @@ filesInput.addEventListener('change', async (e) => {
   for (const [idx, f] of files.entries()) {
     try {
       const text = await readFileWithFallback(f);
-      const { shortName } = parseFilename(f.name);
-      const paramsText = extractNumbers(text);   // ← 直接從 TXT 內容抓所有 input 數值（直式）
+      const { shortName, paramsText } = parseFilename(f.name); // ← 用檔名產生參數
       const needFull = !firstDrawn;
       const { kpi, equitySeq, tsSeq, trades } = analyse(text, { needFull });
 
@@ -71,9 +70,9 @@ filesInput.addEventListener('change', async (e) => {
       }
     } catch (err) {
       console.error('解析失敗：', f.name, err);
-      const { shortName } = parseFilename(f.name);
-      rowsData.push({ filename:f.name, shortName, paramsText:'—', fileRef:f, kpi:null, sortCache:null });
-      appendErrorRow(shortName, '—', err);
+      const { shortName, paramsText } = parseFilename(f.name);
+      rowsData.push({ filename:f.name, shortName, paramsText, fileRef:f, kpi:null, sortCache:null });
+      appendErrorRow(shortName, paramsText, err);
       failed++;
     } finally {
       updateLoadStat(idx+1, files.length, failed);
@@ -103,19 +102,14 @@ function readFileWithFallback(file) {
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 檔名 → 短檔名 ===== */
+/* ===== 檔名 → 短檔名 + 參數列  =====
+   規則：前三段做短檔名；其餘用「 ／ 」連接為參數。*/
 function parseFilename(name='') {
   const base = name.replace(/\.[^.]+$/, '');
   const parts = base.split('_').filter(Boolean);
   const short = parts.slice(0,3).join('_') || base;   // 例：20250810_025945_P
-  return { shortName: short };
-}
-
-/* ===== 參數：從 TXT 內容抓所有數值（按出現順序，直式） ===== */
-function extractNumbers(text=''){
-  const nums = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map(m=>m[0]);
-  if (!nums.length) return '—';
-  return `<span class="param-stack">${nums.map(n=>`<span>${fmtPlain(n)}</span>`).join('')}</span>`;
+  const params = parts.slice(3).join(' ／ ') || '—';
+  return { shortName: short, paramsText: params };
 }
 
 /* ===== 解析交易與序列 ===== */
@@ -250,9 +244,7 @@ function parseForSort(v){
   if (typeof v === 'string'){
     if (v.endsWith?.('%')) return parseFloat(v);
     if (v === '—' || v === '∞') return v === '∞' ? Number.POSITIVE_INFINITY : -Infinity;
-    // 參數欄含 HTML，把數字抽出比較
-    const nums = v.replace(/<[^>]+>/g,' ').match(/-?\d+(?:\.\d+)?/g);
-    return nums ? parseFloat(nums[0]) : 0;
+    return parseFloat(v.replaceAll?.(',','') ?? v);
   }
   return +v || 0;
 }
@@ -264,8 +256,7 @@ function sortRows(key, dir){
       return (av<bv?-1:av>bv?1:0)*factor;
     }
     if (key === '__params'){
-      const av=a.paramsText.replace(/<[^>]+>/g,' ').toLowerCase();
-      const bv=b.paramsText.replace(/<[^>]+>/g,' ').toLowerCase();
+      const av=a.paramsText.toLowerCase(), bv=b.paramsText.toLowerCase();
       return (av<bv?-1:av>bv?1:0)*factor;
     }
     const av = a.sortCache?.[key] ?? -Infinity;
@@ -288,7 +279,6 @@ async function redrawFromTopRow(){
   if (!first.tsSeq || !first.equitySeq || !first.trades) {
     try {
       const text = await readFileWithFallback(first.fileRef);
-      first.paramsText = extractNumbers(text); // 確保上方也更新參數（若首次由排序觸發）
       const { equitySeq, tsSeq, trades } = analyse(text, { needFull:true });
       first.equitySeq = equitySeq; first.tsSeq = tsSeq; first.trades = trades;
     } catch (err) {
@@ -306,7 +296,7 @@ async function redrawFromTopRow(){
 function appendRow(shortName, paramsText, kpi){
   const tds = [
     `<td class="nowrap" title="${escapeHTML(shortName)}">${escapeHTML(shortName)}</td>`,
-    `<td>${paramsText}</td>`
+    `<td class="nowrap" title="${escapeHTML(paramsText)}">${escapeHTML(paramsText)}</td>`
   ];
   for (const g of GROUPS) {
     const obj = kpi[g] || {};
@@ -316,11 +306,11 @@ function appendRow(shortName, paramsText, kpi){
 }
 function appendErrorRow(shortName, paramsText, err){
   const colSpan = 2 + GROUPS.length * KPI_ORDER.length;
-  const row = `<tr><td class="nowrap">${escapeHTML(shortName)}</td><td>${paramsText}</td><td colspan="${colSpan-2}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
+  const row = `<tr><td class="nowrap">${escapeHTML(shortName)}</td><td class="nowrap">${escapeHTML(paramsText)}</td><td colspan="${colSpan-2}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 上方：圖表（黑黃互換） ===== */
+/* ===== 上方：圖表（總=黃、多=綠、空=紅、滑價=黑） ===== */
 function drawChart(tsArr, T, L, S, P){
   try{
     if (chart) chart.destroy();
@@ -349,7 +339,6 @@ function drawChart(tsArr, T, L, S, P){
       ctx.restore();
     }};
 
-    // 黑黃互換：總=黃、滑價=黑，維持多=綠、空=紅
     const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:3,pointHoverRadius:4});
     chart = new Chart(cvs, {
       type:'line',
@@ -422,6 +411,5 @@ function updateLoadStat(done, total, failed){
   loadStat.textContent = `載入：${done}/${total}，成功：${done - failed}，失敗：${failed}`;
 }
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:0}) : (n ?? '—');
-const fmtPlain = s => Number.isFinite(+s) ? (+s).toLocaleString('zh-TW',{maximumFractionDigits:10}).replace(/\.?0+$/,'') : s;
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
