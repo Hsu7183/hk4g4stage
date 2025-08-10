@@ -43,14 +43,14 @@ filesInput.addEventListener('change', async (e) => {
   rowsData = [];
   tbody.innerHTML = '';
   updateLoadStat(0, files.length, 0);
-
   let failed = 0, firstDrawn = false;
 
   for (const [idx, f] of files.entries()) {
     try {
-      const { shortName, paramsText } = parseFilename(f.name);
-      const needFull = !firstDrawn;
       const text = await readFileWithFallback(f);
+      const { shortName } = parseFilename(f.name);
+      const paramsText = extractNumbers(text);   // ← 直接從 TXT 內容抓所有 input 數值（直式）
+      const needFull = !firstDrawn;
       const { kpi, equitySeq, tsSeq, trades } = analyse(text, { needFull });
 
       rowsData.push({
@@ -71,9 +71,9 @@ filesInput.addEventListener('change', async (e) => {
       }
     } catch (err) {
       console.error('解析失敗：', f.name, err);
-      const { shortName, paramsText } = parseFilename(f.name);
-      rowsData.push({ filename:f.name, shortName, paramsText, fileRef:f, kpi:null, sortCache:null });
-      appendErrorRow(shortName, paramsText, err);
+      const { shortName } = parseFilename(f.name);
+      rowsData.push({ filename:f.name, shortName, paramsText:'—', fileRef:f, kpi:null, sortCache:null });
+      appendErrorRow(shortName, '—', err);
       failed++;
     } finally {
       updateLoadStat(idx+1, files.length, failed);
@@ -103,16 +103,22 @@ function readFileWithFallback(file) {
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 檔名 → 短檔名 + 參數列 ===== */
+/* ===== 檔名 → 短檔名 ===== */
 function parseFilename(name='') {
   const base = name.replace(/\.[^.]+$/, '');
   const parts = base.split('_').filter(Boolean);
   const short = parts.slice(0,3).join('_') || base;   // 例：20250810_025945_P
-  const params = parts.slice(3).join(' ／ ') || '—';  // 參數以「 ／ 」分隔，像圖1那樣緊湊
-  return { shortName: short, paramsText: params };
+  return { shortName: short };
 }
 
-/* ===== 解析 ===== */
+/* ===== 參數：從 TXT 內容抓所有數值（按出現順序，直式） ===== */
+function extractNumbers(text=''){
+  const nums = [...text.matchAll(/-?\d+(?:\.\d+)?/g)].map(m=>m[0]);
+  if (!nums.length) return '—';
+  return `<span class="param-stack">${nums.map(n=>`<span>${fmtPlain(n)}</span>`).join('')}</span>`;
+}
+
+/* ===== 解析交易與序列 ===== */
 function analyse(raw, opts={ needFull:false }) {
   const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
@@ -162,7 +168,7 @@ function analyse(raw, opts={ needFull:false }) {
   return { kpi, equitySeq, tsSeq, trades };
 }
 
-/* ===== KPI 計算 ===== */
+/* ===== KPI ===== */
 function buildKPI(tr, seq) {
   const sum = a => a.reduce((x,y)=>x+y,0);
   const pct = x => (x*100).toFixed(1)+'%';
@@ -244,7 +250,9 @@ function parseForSort(v){
   if (typeof v === 'string'){
     if (v.endsWith?.('%')) return parseFloat(v);
     if (v === '—' || v === '∞') return v === '∞' ? Number.POSITIVE_INFINITY : -Infinity;
-    return parseFloat(v.replaceAll?.(',','') ?? v);
+    // 參數欄含 HTML，把數字抽出比較
+    const nums = v.replace(/<[^>]+>/g,' ').match(/-?\d+(?:\.\d+)?/g);
+    return nums ? parseFloat(nums[0]) : 0;
   }
   return +v || 0;
 }
@@ -256,7 +264,8 @@ function sortRows(key, dir){
       return (av<bv?-1:av>bv?1:0)*factor;
     }
     if (key === '__params'){
-      const av=a.paramsText.toLowerCase(), bv=b.paramsText.toLowerCase();
+      const av=a.paramsText.replace(/<[^>]+>/g,' ').toLowerCase();
+      const bv=b.paramsText.replace(/<[^>]+>/g,' ').toLowerCase();
       return (av<bv?-1:av>bv?1:0)*factor;
     }
     const av = a.sortCache?.[key] ?? -Infinity;
@@ -279,6 +288,7 @@ async function redrawFromTopRow(){
   if (!first.tsSeq || !first.equitySeq || !first.trades) {
     try {
       const text = await readFileWithFallback(first.fileRef);
+      first.paramsText = extractNumbers(text); // 確保上方也更新參數（若首次由排序觸發）
       const { equitySeq, tsSeq, trades } = analyse(text, { needFull:true });
       first.equitySeq = equitySeq; first.tsSeq = tsSeq; first.trades = trades;
     } catch (err) {
@@ -296,7 +306,7 @@ async function redrawFromTopRow(){
 function appendRow(shortName, paramsText, kpi){
   const tds = [
     `<td class="nowrap" title="${escapeHTML(shortName)}">${escapeHTML(shortName)}</td>`,
-    `<td class="nowrap" title="${escapeHTML(paramsText)}">${escapeHTML(paramsText)}</td>`
+    `<td>${paramsText}</td>`
   ];
   for (const g of GROUPS) {
     const obj = kpi[g] || {};
@@ -306,17 +316,17 @@ function appendRow(shortName, paramsText, kpi){
 }
 function appendErrorRow(shortName, paramsText, err){
   const colSpan = 2 + GROUPS.length * KPI_ORDER.length;
-  const row = `<tr><td class="nowrap">${escapeHTML(shortName)}</td><td class="nowrap">${escapeHTML(paramsText)}</td><td colspan="${colSpan-2}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
+  const row = `<tr><td class="nowrap">${escapeHTML(shortName)}</td><td>${paramsText}</td><td colspan="${colSpan-2}" style="color:#c00;text-align:left">讀取/解析失敗：${escapeHTML(err?.message||'未知錯誤')}</td></tr>`;
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 上方：圖表（圖3樣式） ===== */
+/* ===== 上方：圖表（黑黃互換） ===== */
 function drawChart(tsArr, T, L, S, P){
   try{
     if (chart) chart.destroy();
     if (!tsArr?.length) return;
 
-    // 產 x 軸月份序
+    // x 軸月份
     const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
     const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
     const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
@@ -328,32 +338,26 @@ function drawChart(tsArr, T, L, S, P){
       return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24) / daysInMonth(y,m);
     });
 
-    // 交錯灰帶 + 最後一點金額標籤（不用外掛）
     const stripes = {id:'stripes', beforeDraw(c){const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
       ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.06)':'transparent';ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
-    const lastLabels = {id:'lastLabels', afterDatasetsDraw(c,args,plg){
-      const {ctx,chartArea:{left,right,top,bottom}}=c, ds=c.data.datasets;
-      ctx.save(); ctx.font='12px system-ui, -apple-system, Segoe UI, sans-serif'; ctx.fillStyle='#000';
-      [0,1,2,3].forEach(k=>{
-        const meta = c.getDatasetMeta(k); if (!meta?.data?.length) return;
-        const p = meta.data[meta.data.length-1]; if (!p) return;
-        const val = ds[k].data[ds[k].data.length-1]; if (val==null) return;
-        const txt = Number(val).toLocaleString('zh-TW');
-        ctx.textAlign='left'; ctx.textBaseline='middle';
-        ctx.fillText(txt, p.x+6, p.y);
-      });
+    const lastLabels = {id:'lastLabels', afterDatasetsDraw(c){
+      const {ctx} = c, ds=c.data.datasets; ctx.save();
+      ctx.font='12px system-ui, -apple-system, Segoe UI, sans-serif'; ctx.fillStyle='#111';
+      for(let k=0;k<ds.length;k++){ const m=c.getDatasetMeta(k); const p=m?.data?.[m.data.length-1]; if(!p) continue;
+        const val=ds[k].data[ds[k].data.length-1]; if(val==null) continue;
+        ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(Number(val).toLocaleString('zh-TW'), p.x+6, p.y); }
       ctx.restore();
     }};
 
+    // 黑黃互換：總=黃、滑價=黑，維持多=綠、空=紅
     const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:3,pointHoverRadius:4});
-
     chart = new Chart(cvs, {
       type:'line',
       data:{ labels:X, datasets:[
-        mkLine(T,'#000000'), // 總（黑）
+        mkLine(T,'#f6b300'), // 總（黃）
         mkLine(L,'#2e7d32'), // 多（綠）
         mkLine(S,'#d32f2f'), // 空（紅）
-        mkLine(P,'#f6b300')  // 滑價（黃）
+        mkLine(P,'#000000')  // 滑價（黑）
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
@@ -371,7 +375,7 @@ function drawChart(tsArr, T, L, S, P){
   }
 }
 
-/* ===== 上方：交易紀錄（圖2雙列樣式） ===== */
+/* ===== 上方：交易紀錄（雙列） ===== */
 function renderTrades(trades){
   if (!trades?.length) {
     tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">此檔沒有成功配對的交易</td></tr>`;
@@ -379,14 +383,12 @@ function renderTrades(trades){
   }
   let cumGain = 0, cumSlip = 0;
   const rows = trades.map((t, i) => {
-    // 入場列
     const r1 = `
       <tr>
         <td rowspan="2">${i+1}</td>
         <td>${fmtTs(t.pos.tsIn)}</td><td>${fmt(t.pos.pIn)}</td><td>${t.pos.side==='L'?'新買':'新賣'}</td>
         <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
       </tr>`;
-    // 出場列（含累積）
     cumGain += t.gain; cumSlip += t.gainSlip;
     const r2 = `
       <tr>
@@ -400,7 +402,7 @@ function renderTrades(trades){
   tradesBody.innerHTML = rows;
 }
 
-/* ===== 上方：KPI（圖1平鋪樣式） ===== */
+/* ===== 上方：KPI（平鋪） ===== */
 function renderTopKPI(kpi){
   if (!kpi) { kpiBlocks.innerHTML=''; return; }
   const groups = ['全部','多單','空單'];
@@ -409,10 +411,7 @@ function renderTopKPI(kpi){
     const line = KPI_ORDER.map(([label,key]) => `
       <span class="kpi-item"><span class="kpi-key">${label}</span>：<span class="kpi-val">${fmt(obj[key])}</span></span>
     `).join('');
-    return `<div class="kpi-block">
-      <div class="kpi-title">${g}</div>
-      <div class="kpi-line">${line}</div>
-    </div>`;
+    return `<div class="kpi-block"><div class="kpi-title">${g}</div><div class="kpi-line">${line}</div></div>`;
   }).join('');
   kpiBlocks.innerHTML = html;
 }
@@ -423,5 +422,6 @@ function updateLoadStat(done, total, failed){
   loadStat.textContent = `載入：${done}/${total}，成功：${done - failed}，失敗：${failed}`;
 }
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:0}) : (n ?? '—');
+const fmtPlain = s => Number.isFinite(+s) ? (+s).toLocaleString('zh-TW',{maximumFractionDigits:10}).replace(/\.?0+$/,'') : s;
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
