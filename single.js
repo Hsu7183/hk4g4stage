@@ -1,19 +1,24 @@
 /* ===== 常數 ===== */
 const MULT = 200, FEE = 45, TAX = 0.00004, SLIP = 1.5;
 const ENTRY = ['新買','新賣'];
-const EXIT_L = ['平賣','強制平倉'];
-const EXIT_S = ['平買','強制平倉'];
+const EXIT_L = ['平賣','強制平倉','平倉'];
+const EXIT_S = ['平買','強制平倉','平倉'];
 
-/* 動作別名 */
+/* 動作別名（含帶註解的字眼） */
 var ACTION_MAP = new Map([
   ['新買','新買'], ['買進','新買'], ['作多','新買'], ['多單','新買'], ['新多','新買'],
   ['新賣','新賣'], ['賣出','新賣'], ['作空','新賣'], ['空單','新賣'], ['新空','新賣'],
-  ['平買','平買'], ['平多','平賣'], ['平倉多','平賣'],
-  ['平賣','平賣'], ['平空','平買'], ['平倉空','平買'],
+  ['平買','平買'], ['平倉空','平買'], ['平空','平買'],
+  ['平賣','平賣'], ['平倉多','平賣'], ['平多','平賣'],
   ['強制平倉','強制平倉'], ['強平','強制平倉'], ['強制','強制平倉'],
   ['平倉','平倉']
 ]);
-function normAct(s){ s = (s||'').trim(); return ACTION_MAP.get(s) || s; }
+function normAct(s){
+  s = (s||'').trim();
+  s = s.replace(/[（(].*?[)）]/g,'');           // 去掉括號內註解
+  if(s.length>3) s = s.slice(0,3);            // 最多取前三字避免多餘字串
+  return ACTION_MAP.get(s) || s;
+}
 
 /* ===== DOM ===== */
 var cvs = document.getElementById('equityChart');
@@ -57,21 +62,47 @@ function formatParamsDisplay(s){
   if(!s) return '—';
   var tokens = s.replace(/[，,]/g,' ').trim().split(/\s+/).filter(Boolean);
   var allNum = tokens.length>0 && tokens.every(function(x){ return /^[-+]?\d+(?:\.\d+)?$/.test(x); });
-  if(allNum){
-    return tokens.map(function(x){ return String(Math.trunc(parseFloat(x))); }).join(' / ');
-  }
-  return s;
+  return allNum ? tokens.map(function(x){ return String(Math.trunc(parseFloat(x))); }).join(' / ') : s;
 }
 
-/* ===== 交易行解析 ===== */
+/* ===== 時間解析：寬鬆吃各種格式 ===== */
+function parseTSFlex(a,b){
+  // a=第一欄(可能是日期或連成的日期時間)，b=第二欄(可能是時間)
+  function onlyDigits(x){ return (x||'').replace(/\D/g,''); }
+  var d1 = onlyDigits(a), d2 = onlyDigits(b);
+  var cand = d1;
+  if(d1.length<=8 && d2) cand = d1 + d2;      // "YYYYMMDD"+"HHMM"
+  // 取前 12 或 14 位；不足 12 先補 "0000"
+  if(cand.length>=14) return cand.slice(0,14);
+  if(cand.length>=12) return cand.slice(0,12);
+  if(cand.length>=8)  return cand.slice(0,8)+'0000';
+  return ''; // 失敗
+}
+
+/* ===== 交易行解析（更寬鬆） ===== */
 function parseTradeLine(line){
   if(!line) return null;
   var s = line.replace(/[，,]/g,' ').replace(/\t+/g,' ').replace(/\s+/g,' ').trim();
-  var m = s.match(/^(\d{8}|\d{12}|\d{14})\s+(-?\d+(?:\.\d+)?)\s+(\S+)/);
-  if(!m) return null;
-  var ts = m[1];
-  var price = parseFloat(m[2].replace(/,/g,''));
-  var act = normAct(m[3]);
+  var parts = s.split(' ');
+  if(parts.length<3) return null;
+
+  // 1) 先用寬鬆時間
+  var ts = parseTSFlex(parts[0], parts[1]);
+  var priceIdx = ts ? 2 : 1;                   // 若時間吃了兩欄，價格應該在第 3 欄
+  // 2) 尋找第一個像數字的欄位當價格
+  var price = null, pIndex=-1;
+  for(var i=priceIdx;i<parts.length;i++){
+    if(/^[-+]?\d+(?:\.\d+)?$/.test(parts[i].replace(/,/g,''))){ price = parseFloat(parts[i].replace(/,/g,'')); pIndex=i; break; }
+  }
+  if(!ts || price===null) return null;
+
+  // 3) 價格後面第一個非數字欄位當動作
+  var act=''; 
+  for(var j=pIndex+1;j<parts.length;j++){
+    if(!/^[-+]?\d+(?:\.\d+)?$/.test(parts[j])){ act = normAct(parts[j]); break; }
+  }
+  if(!act) return null;
+
   var valid = { '新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1 };
   if(!valid[act] || !isFinite(price)) return null;
   return { ts:ts, price:price, act:act };
@@ -103,12 +134,11 @@ function analyse(raw, meta){
   if(!parseTradeLine(rows[0])) paramLine = rows.shift();
 
   var q = [], tr = [], tsArr = [], tot=[], lon=[], sho=[], sli=[];
-  var cum=0,cumL=0,cumS=0,cumSlip=0, skipped=0;
+  var cum=0,cumL=0,cumS=0,cumSlip=0;
 
   for(var i=0;i<rows.length;i++){
-    var r = rows[i];
-    var trow = parseTradeLine(r);
-    if(!trow){ skipped++; continue; }
+    var trow = parseTradeLine(rows[i]);
+    if(!trow) continue;
 
     var tsRaw = trow.ts, price = trow.price, act = trow.act;
 
@@ -117,44 +147,35 @@ function analyse(raw, meta){
       continue;
     }
 
-    var qi = -1;
+    var qi=-1;
     for(var j=0;j<q.length;j++){
-      var o = q[j];
-      if( (o.side==='L' && (EXIT_L.indexOf(act)>=0 || act==='平倉')) ||
-          (o.side==='S' && (EXIT_S.indexOf(act)>=0 || act==='平倉')) ){
-        qi = j; break;
+      var o=q[j];
+      if( (o.side==='L' && (EXIT_L.indexOf(act)>=0)) ||
+          (o.side==='S' && (EXIT_S.indexOf(act)>=0)) ){
+        qi=j; break;
       }
     }
     if(qi===-1) continue;
 
     var pos = q.splice(qi,1)[0];
     var pts = pos.side==='L' ? price-pos.pIn : pos.pIn-price;
-    var fee = FEE*2;
-    var tax = Math.round(price*MULT*TAX);
-    var gain = pts*MULT - fee - tax;
-    var gainSlip = gain - SLIP*MULT;
+    var fee = FEE*2, tax=Math.round(price*MULT*TAX);
+    var gain=pts*MULT - fee - tax, gainSlip=gain - SLIP*MULT;
 
-    cum += gain; cumSlip += gainSlip;
-    if(pos.side==='L') cumL += gain; else cumS += gain;
+    cum+=gain; cumSlip+=gainSlip; if(pos.side==='L') cumL+=gain; else cumS+=gain;
 
     tr.push({ pos:pos, tsOut:tsRaw, priceOut:price, pts:pts, gain:gain, gainSlip:gainSlip, fee:fee, tax:tax });
     tsArr.push(tsRaw); tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
   }
 
-  if(!tr.length){ showErr('沒有成功配對的交易'); console.warn('略過行數：', skipped); return null; }
+  if(!tr.length){ showErr('沒有成功配對的交易'); return null; }
 
   var kpi = buildKPI(tr, { tot:tot, lon:lon, sho:sho, sli:sli });
   var pf = parseFilename(meta.filename || '');
   var paramsText = formatParamsDisplay(paramLine || pf.paramsText);
 
-  return {
-    tsArr: tsArr,
-    seq: { tot:tot, lon:lon, sho:sho, sli:sli },
-    trades: tr,
-    kpi: kpi,
-    shortName: pf.shortName,
-    paramsText: paramsText
-  };
+  return { tsArr:tsArr, seq:{tot:tot,lon:lon,sho:sho,sli:sli}, trades:tr, kpi:kpi,
+           shortName:pf.shortName, paramsText:paramsText };
 }
 
 /* ===== KPI ===== */
@@ -168,45 +189,23 @@ var KPI_ORDER = [
   ['盈虧比','rr'], ['期望值(每筆)','expectancy'],
   ['最大連勝','maxWinStreak'], ['最大連敗','maxLossStreak']
 ];
-
 function buildKPI(tr, seq){
   function sum(a){ return a.reduce(function(x,y){return x+y;},0); }
   function pct(x){ return (x*100).toFixed(1)+'%'; }
   function safeMax(a){ return a.length?Math.max.apply(null,a):0; }
   function safeMin(a){ return a.length?Math.min.apply(null,a):0; }
-  function byDay(list){
-    var m={}; list.forEach(function(t){
-      var d=(t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0);
-    }); return Object.values(m);
-  }
-  function runUp(s){
-    if(!s.length) return 0; var min=s[0], up=0;
-    s.forEach(function(v){ if(v<min) min=v; if(v-min>up) up=v-min; });
-    return up;
-  }
-  function drawDn(s){
-    if(!s.length) return 0; var peak=s[0], dn=0;
-    s.forEach(function(v){ if(v>peak) peak=v; if(v-peak<dn) dn=v-peak; });
-    return dn;
-  }
-  function streaks(list){
-    var cw=0,cl=0,mw=0,ml=0;
-    list.forEach(function(t){
-      if(t.gain>0){ cw++; cl=0; if(cw>mw) mw=cw; }
-      else if(t.gain<0){ cl++; cw=0; if(cl>ml) ml=cl; }
-    });
-    return {mw:mw, ml:ml};
-  }
+  function byDay(list){ var m={}; list.forEach(function(t){ var d=(t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0); }); return Object.values(m); }
+  function runUp(s){ if(!s.length) return 0; var min=s[0], up=0; s.forEach(function(v){ if(v<min) min=v; if(v-min>up) up=v-min; }); return up; }
+  function drawDn(s){ if(!s.length) return 0; var peak=s[0], dn=0; s.forEach(function(v){ if(v>peak) peak=v; if(v-peak<dn) dn=v-peak; }); return dn; }
+  function streaks(list){ var cw=0,cl=0,mw=0,ml=0; list.forEach(function(t){ if(t.gain>0){ cw++; cl=0; if(cw>mw) mw=cw; } else if(t.gain<0){ cl++; cw=0; if(cl>ml) ml=cl; } }); return {mw:mw, ml:ml}; }
   var longs = tr.filter(function(t){ return t.pos && t.pos.side==='L'; });
   var shorts= tr.filter(function(t){ return t.pos && t.pos.side==='S'; });
 
-  function empty(){ return {n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,
-    sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',expectancy:0,maxWinStreak:0,maxLossStreak:0}; }
-
   function make(list, seqArr){
-    if(!list.length) return empty();
-    var win = list.filter(function(t){return t.gain>0;});
-    var loss= list.filter(function(t){return t.gain<0;});
+    if(!list.length) return {n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',expectancy:0,maxWinStreak:0,maxLossStreak:0};
+    var sumF = sum(list.map(function(t){return t.gain;}));
+    var win  = list.filter(function(t){return t.gain>0;});
+    var loss = list.filter(function(t){return t.gain<0;});
     var winAmt = sum(win.map(function(t){return t.gain;}));
     var lossAmt= -sum(loss.map(function(t){return t.gain;}));
     var pf = lossAmt===0 ? (winAmt>0?'∞':'—') : (winAmt/lossAmt).toFixed(2);
@@ -217,11 +216,9 @@ function buildKPI(tr, seq){
     var st = streaks(list);
     return {
       n:list.length, winRate:pct(win.length/list.length), lossRate:pct(loss.length/list.length),
-      posPts:sum(win.map(function(t){return t.pts;})),
-      negPts:sum(loss.map(function(t){return t.pts;})),
+      posPts:sum(win.map(function(t){return t.pts;})), negPts:sum(loss.map(function(t){return t.pts;})),
       sumPts:sum(list.map(function(t){return t.pts;})),
-      sumGain:sum(list.map(function(t){return t.gain;})),
-      sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
+      sumGain:sumF, sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
       maxDay:safeMax(byDay(list)), minDay:safeMin(byDay(list)),
       maxRunUp:runUp(seqArr||[]), maxDrawdown:drawDn(seqArr||[]),
       pf:pf, avgW:avgW, avgL:avgL, rr:rr, expectancy:exp,
@@ -229,11 +226,7 @@ function buildKPI(tr, seq){
     };
   }
 
-  return {
-    '全部': make(tr, seq.tot),
-    '多單': make(longs, seq.lon),
-    '空單': make(shorts, seq.sho)
-  };
+  return { '全部':make(tr, seq.tot), '多單':make(longs, seq.lon), '空單':make(shorts, seq.sho) };
 }
 
 /* ===== 渲染 ===== */
@@ -251,13 +244,11 @@ function renderTopKPI(kpi){
     return '<div class="kpi-block"><div class="kpi-title">'+g+'</div><div class="kpi-line">'+line(kpi[g])+'</div></div>';
   }).join('');
 }
-
 function renderParamBar(shortName, paramsText){
   pName.textContent = shortName || '—';
   pParams.textContent = paramsText || '—';
   paramBar.hidden = false;
 }
-
 function renderTrades(list){
   var body = tbl.querySelector('tbody'); body.innerHTML='';
   var cg=0, cs=0;
@@ -313,23 +304,13 @@ function drawChart(tsArr, T, L, S, P){
 }
 
 /* ===== 工具 ===== */
-function fmt(n){
-  if(typeof n==='number' && isFinite(n)) return n.toLocaleString('zh-TW',{maximumFractionDigits:0});
-  if(typeof n==='string') return n;
-  return '—';
-}
-function fmtTs(s){
-  var y=s.slice(0,4), m=s.slice(4,6), d=s.slice(6,8), hh=s.slice(8,10)||'00', mm=s.slice(10,12)||'00';
-  return y+'/'+m+'/'+d+' '+hh+':'+mm;
-}
+function fmt(n){ if(typeof n==='number' && isFinite(n)) return n.toLocaleString('zh-TW',{maximumFractionDigits:0}); if(typeof n==='string') return n; return '—'; }
+function fmtTs(s){ var y=s.slice(0,4), m=s.slice(4,6), d=s.slice(6,8), hh=s.slice(8,10)||'00', mm=s.slice(10,12)||'00'; return y+'/'+m+'/'+d+' '+hh+':'+mm; }
 function flash(el){ el.classList.add('flash'); setTimeout(function(){ el.classList.remove('flash'); },600); }
 function showErr(m){ errBox.textContent=m; errBox.style.display='inline-block'; }
 function hideErr(){ errBox.style.display='none'; errBox.textContent=''; }
 function parseFilename(name){
-  name = name || '';
-  var base = name.replace(/\.[^.]+$/,'');
-  var parts = base.split('_').filter(Boolean);
-  var short = parts.slice(0,3).join('_') || base;
-  var params = parts.slice(3).join(' ／ ') || '—';
+  name = name || ''; var base = name.replace(/\.[^.]+$/,''); var parts = base.split('_').filter(Boolean);
+  var short = parts.slice(0,3).join('_') || base; var params = parts.slice(3).join(' ／ ') || '—';
   return { shortName:short, paramsText:formatParamsDisplay(params) };
 }
