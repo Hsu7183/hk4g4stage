@@ -3,16 +3,49 @@
 <head>
   <meta charset="utf-8" />
   <title>三劍客台指期策略分析（批量版）</title>
+
   <link rel="stylesheet" href="style.css" />
+
+  <!-- 全寬覆蓋：把原本 1200px 的限制放寬到 100% -->
   <style>
-    .toolbar{max-width:1200px;margin:1rem auto;display:flex;gap:.6rem;align-items:center}
+    body.wide header,
+    body.wide .toolbar,
+    body.wide .sub,
+    body.wide .table-wrap,
+    body.wide #chartWrap {
+      max-width: 100%;
+      margin: 1rem auto;
+      padding: 0 1rem;
+    }
+    .toolbar{display:flex;gap:.6rem;align-items:center}
     .hint{color:#666;font-size:.86rem}
+
+    /* 表頭可排序的視覺提示 */
+    th.sortable{cursor:pointer; position:relative; user-select:none;}
+    th.sortable::after{
+      content:"⇅"; font-size:.8rem; color:#999; position:absolute; right:.35rem; top:50%; transform:translateY(-50%);
+    }
+    th.sortable.asc::after{content:"↑";}
+    th.sortable.desc::after{content:"↓";}
+
+    /* 第一欄固定 */
     table.sticky th:first-child, table.sticky td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
     table.sticky thead th:first-child { z-index: 2; background:#fafafa; }
-    .nowrap{ white-space:nowrap }
+    .nowrap{white-space:nowrap}
+
+    /* 圖表區塊 */
+    #chartWrap{margin-top:.6rem}
+    #chartBox{
+      width:100%; height:360px; background:#fff; border:1px solid var(--border);
+      border-radius:.5rem; padding:.6rem; box-sizing:border-box;
+    }
   </style>
+
+  <!-- 圖表程式庫（只用在顯示第一筆用） -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
-<body>
+<body class="wide">
   <header>
     <h1>三劍客台指期策略分析（批量版）</h1>
     <div class="btn-group">
@@ -23,12 +56,20 @@
     </div>
   </header>
 
+  <!-- 第一筆的圖表 -->
+  <div id="chartWrap">
+    <h2 class="sub" style="margin-top:0.2rem">第一筆收益曲線</h2>
+    <div id="chartBox">
+      <canvas id="equityChart"></canvas>
+    </div>
+  </div>
+
   <div class="toolbar">
-    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。</div>
+    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序。</div>
   </div>
 
   <h2 class="sub">彙總結果</h2>
-  <div style="max-width:1200px;margin:auto;overflow:auto;">
+  <div class="table-wrap" style="overflow:auto;">
     <table id="tblBatch" class="sticky">
       <thead></thead>
       <tbody></tbody>
