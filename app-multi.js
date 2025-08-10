@@ -1,19 +1,19 @@
 /* ===== 常數 ===== */
 const MULT = 200, FEE = 45, TAX = 0.00004, SLIP = 1.5;
 const ENTRY = ['新買','新賣'];
-const EXIT_L = ['平賣','強制平倉'];
-const EXIT_S = ['平買','強制平倉'];
+const EXIT_L = ['平賣','強制平倉','平倉'];
+const EXIT_S = ['平買','強制平倉','平倉'];
 
 /* 動作別名 */
 var ACTION_MAP = new Map([
   ['新買','新買'], ['買進','新買'], ['作多','新買'], ['多單','新買'], ['新多','新買'],
   ['新賣','新賣'], ['賣出','新賣'], ['作空','新賣'], ['空單','新賣'], ['新空','新賣'],
-  ['平買','平買'], ['平多','平賣'], ['平倉多','平賣'],
-  ['平賣','平賣'], ['平空','平買'], ['平倉空','平買'],
+  ['平買','平買'], ['平倉空','平買'], ['平空','平買'],
+  ['平賣','平賣'], ['平倉多','平賣'], ['平多','平賣'],
   ['強制平倉','強制平倉'], ['強平','強制平倉'], ['強制','強制平倉'],
   ['平倉','平倉']
 ]);
-function normAct(s){ s=(s||'').trim(); return ACTION_MAP.get(s)||s; }
+function normAct(s){ s=(s||'').trim(); s=s.replace(/[（(].*?[)）]/g,''); if(s.length>3) s=s.slice(0,3); return ACTION_MAP.get(s)||s; }
 
 /* ===== DOM ===== */
 var filesInput = document.getElementById('filesInput');
@@ -31,19 +31,31 @@ var pParams    = document.getElementById('pParams');
 var chart = null;
 
 /* ===== 工具 ===== */
-function formatParamsDisplay(s){
-  if(!s) return '—';
-  var tokens = s.replace(/[，,]/g,' ').trim().split(/\s+/).filter(Boolean);
-  var allNum = tokens.length>0 && tokens.every(function(x){ return /^[-+]?\d+(?:\.\d+)?$/.test(x); });
-  return allNum ? tokens.map(function(x){ return String(Math.trunc(parseFloat(x))); }).join(' / ') : s;
-}
+function formatParamsDisplay(s){ if(!s) return '—'; var t=s.replace(/[，,]/g,' ').trim().split(/\s+/).filter(Boolean); var ok=t.length>0&&t.every(function(x){return /^[-+]?\d+(?:\.\d+)?$/.test(x);}); return ok?t.map(function(x){return String(Math.trunc(parseFloat(x)));}).join(' / '):s; }
+function onlyDigits(x){ return (x||'').replace(/\D/g,''); }
+function parseTSFlex(a,b){ var d1=onlyDigits(a), d2=onlyDigits(b); var cand=d1; if(d1.length<=8 && d2) cand=d1+d2; if(cand.length>=14) return cand.slice(0,14); if(cand.length>=12) return cand.slice(0,12); if(cand.length>=8) return cand.slice(0,8)+'0000'; return ''; }
 function parseTradeLine(line){
   if(!line) return null;
   var s = line.replace(/[，,]/g,' ').replace(/\t+/g,' ').replace(/\s+/g,' ').trim();
-  var m = s.match(/^(\d{8}|\d{12}|\d{14})\s+(-?\d+(?:\.\d+)?)\s+(\S+)/);
-  if(!m) return null;
-  var ts=m[1], price=parseFloat(m[2].replace(/,/g,'')), act=normAct(m[3]);
-  var valid={ '新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1 };
+  var parts = s.split(' ');
+  if(parts.length<3) return null;
+
+  var ts = parseTSFlex(parts[0], parts[1]);
+  var priceIdx = ts ? 2 : 1;
+
+  var price=null, pIndex=-1;
+  for(var i=priceIdx;i<parts.length;i++){
+    if(/^[-+]?\d+(?:\.\d+)?$/.test(parts[i].replace(/,/g,''))){ price=parseFloat(parts[i].replace(/,/g,'')); pIndex=i; break; }
+  }
+  if(!ts || price===null) return null;
+
+  var act='';
+  for(var j=pIndex+1;j<parts.length;j++){
+    if(!/^[-+]?\d+(?:\.\d+)?$/.test(parts[j])){ act=normAct(parts[j]); break; }
+  }
+  if(!act) return null;
+
+  var valid={'新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1};
   if(!valid[act] || !isFinite(price)) return null;
   return { ts:ts, price:price, act:act };
 }
@@ -143,8 +155,8 @@ function analyse(raw, opts){
     var qi=-1;
     for(var j=0;j<q.length;j++){
       var o=q[j];
-      if( (o.side==='L' && (EXIT_L.indexOf(t.act)>=0||t.act==='平倉')) ||
-          (o.side==='S' && (EXIT_S.indexOf(t.act)>=0||t.act==='平倉')) ){ qi=j; break; }
+      if( (o.side==='L' && (EXIT_L.indexOf(t.act)>=0)) ||
+          (o.side==='S' && (EXIT_S.indexOf(t.act)>=0)) ){ qi=j; break; }
     }
     if(qi===-1) continue;
 
@@ -168,63 +180,43 @@ function analyse(raw, opts){
   var pf  = parseFilename(opts.filename||'');
   var paramsText = formatParamsDisplay(paramLine || pf.paramsText);
 
-  return {
-    kpi:kpi,
-    equitySeq:eq,
-    tsSeq: opts.needFull ? tsArr : null,
-    trades: opts.needFull ? tr : null,
-    shortName: pf.shortName,
-    paramsText: paramsText
-  };
+  return { kpi:kpi, equitySeq:eq, tsSeq: opts.needFull? tsArr:null, trades: opts.needFull? tr:null,
+           shortName:pf.shortName, paramsText:paramsText };
 }
 
-/* ===== KPI ===== */
+/* ===== KPI 同單檔 ===== */
 function buildKPI(tr, seq){
   function sum(a){ return a.reduce(function(x,y){return x+y;},0); }
   function pct(x){ return (x*100).toFixed(1)+'%'; }
   function safeMax(a){ return a.length?Math.max.apply(null,a):0; }
   function safeMin(a){ return a.length?Math.min.apply(null,a):0; }
-  function byDay(list){
-    var m={}; list.forEach(function(t){
-      var d=(t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0);
-    }); return Object.values(m);
-  }
+  function byDay(list){ var m={}; list.forEach(function(t){ var d=(t.tsOut||'').slice(0,8); m[d]=(m[d]||0)+(t.gain||0); }); return Object.values(m); }
   function runUp(s){ if(!s.length) return 0; var min=s[0], up=0; s.forEach(function(v){ if(v<min) min=v; if(v-min>up) up=v-min; }); return up; }
   function drawDn(s){ if(!s.length) return 0; var peak=s[0], dn=0; s.forEach(function(v){ if(v>peak) peak=v; if(v-peak<dn) dn=v-peak; }); return dn; }
-  function streaks(list){
-    var cw=0,cl=0,mw=0,ml=0;
-    list.forEach(function(t){ if(t.gain>0){ cw++; cl=0; if(cw>mw) mw=cw; } else if(t.gain<0){ cl++; cw=0; if(cl>ml) ml=cl; } });
-    return {mw:mw, ml:ml};
-  }
-  var longs = tr.filter(function(t){ return t.pos && t.pos.side==='L'; });
-  var shorts= tr.filter(function(t){ return t.pos && t.pos.side==='S'; });
-
-  function empty(){ return {n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',expectancy:0,maxWinStreak:0,maxLossStreak:0}; }
-
+  function streaks(list){ var cw=0,cl=0,mw=0,ml=0; list.forEach(function(t){ if(t.gain>0){ cw++; cl=0; if(cw>mw) mw=cw; } else if(t.gain<0){ cl++; cw=0; if(cl>ml) ml=cl; } }); return {mw:mw, ml:ml}; }
+  var longs=tr.filter(function(t){return t.pos&&t.pos.side==='L';});
+  var shorts=tr.filter(function(t){return t.pos&&t.pos.side==='S';});
   function make(list, seqWrap){
-    if(!list.length) return empty();
+    if(!list.length) return {n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',expectancy:0,maxWinStreak:0,maxLossStreak:0};
+    var sumF=sum(list.map(function(t){return t.gain;}));
     var win=list.filter(function(t){return t.gain>0;});
     var loss=list.filter(function(t){return t.gain<0;});
     var winAmt=sum(win.map(function(t){return t.gain;}));
     var lossAmt=-sum(loss.map(function(t){return t.gain;}));
-    var pf = lossAmt===0 ? (winAmt>0?'∞':'—') : (winAmt/lossAmt).toFixed(2);
+    var pf=lossAmt===0?(winAmt>0?'∞':'—'):(winAmt/lossAmt).toFixed(2);
     var avgW=win.length?winAmt/win.length:0;
     var avgL=loss.length?-(lossAmt/loss.length):0;
     var rr=avgL===0?'—':Math.abs(avgW/avgL).toFixed(2);
     var exp=(win.length+loss.length)?(winAmt-lossAmt)/(win.length+loss.length):0;
     var st=streaks(list);
-    return {
-      n:list.length, winRate:pct(win.length/list.length), lossRate:pct(loss.length/list.length),
+    return { n:list.length, winRate:pct(win.length/list.length), lossRate:pct(loss.length/list.length),
       posPts:sum(win.map(function(t){return t.pts;})), negPts:sum(loss.map(function(t){return t.pts;})), sumPts:sum(list.map(function(t){return t.pts;})),
-      sumGain:sum(list.map(function(t){return t.gain;})), sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
+      sumGain:sumF, sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
       maxDay:safeMax(byDay(list)), minDay:safeMin(byDay(list)),
-      maxRunUp:runUp((seqWrap && seqWrap.tot) ? seqWrap.tot : []), maxDrawdown:drawDn((seqWrap && seqWrap.tot) ? seqWrap.tot : []),
-      pf:pf, avgW:avgW, avgL:avgL, rr:rr, expectancy:exp,
-      maxWinStreak:st.mw, maxLossStreak:st.ml
-    };
+      maxRunUp:runUp((seqWrap&&seqWrap.tot)?seqWrap.tot:[]), maxDrawdown:drawDn((seqWrap&&seqWrap.tot)?seqWrap.tot:[]),
+      pf:pf, avgW:avgW, avgL:avgL, rr:rr, expectancy:exp, maxWinStreak:st.mw, maxLossStreak:st.ml };
   }
-
-  return { '全部':make(tr, seq), '多單':make(longs,{tot:seq.lon}), '空單':make(shorts,{tot:seq.sho}) };
+  return { '全部':make(tr,seq), '多單':make(longs,{tot:seq.lon}), '空單':make(shorts,{tot:seq.sho}) };
 }
 
 /* ===== 表頭 / 排序 ===== */
@@ -262,21 +254,17 @@ function buildSortCache(kpi){
     var g=GROUPS[gi], obj=kpi[g]||{};
     for(var ki=0; ki<KPI_ORDER.length; ki++){
       var key=KPI_ORDER[ki][1];
-      flat[g+'.'+key] = parseForSort(obj[key]);
+      var v=obj[key];
+      if(typeof v==='number') flat[g+'.'+key]=v;
+      else if(typeof v==='string'){
+        if(v.slice(-1)==='%') flat[g+'.'+key]=parseFloat(v);
+        else if(v==='—') flat[g+'.'+key]=-Infinity;
+        else if(v==='∞') flat[g+'.'+key]=Number.POSITIVE_INFINITY;
+        else flat[g+'.'+key]=parseFloat(v.replace(/,/g,''))||-Infinity;
+      }else flat[g+'.'+key]=-Infinity;
     }
   }
   return flat;
-}
-function parseForSort(v){
-  if(v===null || v===undefined) return -Infinity;
-  if(typeof v==='number') return v;
-  if(typeof v==='string'){
-    if(v.slice(-1)==='%') return parseFloat(v);
-    if(v==='—') return -Infinity;
-    if(v==='∞') return Number.POSITIVE_INFINITY;
-    return parseFloat((v||'').replace(/,/g,''));
-  }
-  return +v || 0;
 }
 function sortRows(key, dir){
   var factor = dir==='asc' ? 1 : -1;
@@ -415,8 +403,6 @@ function updateLoadStat(done,total,failed){
   if(!total){ loadStat.textContent=''; return; }
   loadStat.textContent = '載入：'+done+'/'+total+'，成功：'+(done-failed)+'，失敗：'+failed;
 }
-
-/* ===== 其它 ===== */
 function parseFilename(name){
   name=name||''; var base=name.replace(/\.[^.]+$/,''); var parts=base.split('_').filter(Boolean);
   var short=parts.slice(0,3).join('_')||base; var params=parts.slice(3).join(' ／ ')||'—';
