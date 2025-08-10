@@ -12,10 +12,25 @@
     body.wide .toolbar,
     body.wide .sub,
     body.wide .table-wrap,
-    body.wide #chartWrap { max-width:100%; margin:1rem auto; padding:0 1rem; }
+    body.wide #topSplit { max-width:100%; margin:1rem auto; padding:0 1rem; }
+
     .toolbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
     .hint{color:#666;font-size:.86rem}
     .stats{color:#555;font-size:.86rem}
+
+    /* 上方左右各半（圖 / 交易明細） */
+    #topSplit{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
+    #chartBox{
+      width:100%; height:360px; background:#fff; border:1px solid var(--border);
+      border-radius:.5rem; padding:.6rem; box-sizing:border-box;
+    }
+    #tradesBox{
+      height:360px; background:#fff; border:1px solid var(--border);
+      border-radius:.5rem; padding:.6rem; box-sizing:border-box; overflow:auto;
+    }
+    #tradesBox table{width:100%; border-collapse:collapse; font-size:.84rem}
+    #tradesBox th,#tradesBox td{border-bottom:1px solid var(--border); padding:.35rem .3rem; text-align:center}
+    #tradesBox thead th{position:sticky; top:0; background:#fafafa; z-index:1}
 
     /* 表頭排序 */
     th.sortable{cursor:pointer; position:relative; user-select:none;}
@@ -27,16 +42,9 @@
     table.sticky th:first-child, table.sticky td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
     table.sticky thead th:first-child { z-index: 2; background:#fafafa; }
     .nowrap{white-space:nowrap}
-
-    /* 圖表區塊 */
-    #chartWrap{margin-top:.6rem}
-    #chartBox{
-      width:100%; height:360px; background:#fff; border:1px solid var(--border);
-      border-radius:.5rem; padding:.6rem; box-sizing:border-box;
-    }
   </style>
 
-  <!-- 只用 Chart.js（避免外掛缺失造成中止） -->
+  <!-- 只用 Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="wide">
@@ -50,16 +58,31 @@
     </div>
   </header>
 
-  <!-- 第一筆的圖表 -->
-  <div id="chartWrap">
-    <h2 class="sub" style="margin-top:0.2rem">第一筆收益曲線</h2>
-    <div id="chartBox">
-      <canvas id="equityChart"></canvas>
+  <!-- 上半：左圖右表 -->
+  <div id="topSplit">
+    <div>
+      <h2 class="sub" style="margin-top:0.2rem">第一列收益曲線</h2>
+      <div id="chartBox"><canvas id="equityChart"></canvas></div>
+    </div>
+    <div>
+      <h2 class="sub" style="margin-top:0.2rem">第一列交易紀錄</h2>
+      <div id="tradesBox">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>進場時間</th><th>進場價</th><th>方向</th>
+              <th>出場時間</th><th>出場價</th><th>點數</th><th>手續費</th>
+              <th>稅</th><th>獲利</th><th>滑價獲利</th>
+            </tr>
+          </thead>
+          <tbody id="tradesBody"><tr><td colspan="11" style="color:#777">尚未載入</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
   <div class="toolbar">
-    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序。</div>
+    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序（排序後，上方改為第一列資料）。</div>
     <div class="stats" id="loadStat"></div>
   </div>
 
@@ -71,7 +94,6 @@
     </table>
   </div>
 
-  <!-- 加上版本參數，避免瀏覽器沿用舊快取 -->
-  <script type="module" src="app-multi.js?v=2025-08-10a"></script>
+  <script type="module" src="app-multi.js?v=2025-08-10b"></script>
 </body>
 </html>
