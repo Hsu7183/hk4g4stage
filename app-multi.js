@@ -376,10 +376,7 @@ function drawChart(tsArr, T, L, S, P){
     chart = new Chart(cvs, {
       type:'line',
       data:{ labels:X, datasets:[
-        mkLine(T,'#f6b300'), // 總（黃）
-        mkLine(L,'#2e7d32'), // 多（綠）
-        mkLine(S,'#d32f2f'), // 空（紅）
-        mkLine(P,'#000000')  // 滑價（黑）
+        mkLine(T,'#f6b300'), mkLine(L,'#2e7d32'), mkLine(S,'#d32f2f'), mkLine(P,'#000000')
       ]},
       options:{
         responsive:true, maintainAspectRatio:false,
@@ -429,21 +426,3 @@ function updateLoadStat(done, total, failed){
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:0}) : (n ?? '—');
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-/* ===== 排序與重繪需要用到 ===== */
-function buildSortCache(kpi){
-  const flat = {};
-  for (const g of ['全部','多單','空單']) for (const [,key] of KPI_ORDER)
-    flat[`${g}.${key}`] = parseForSort(kpi?.[g]?.[key]);
-  return flat;
-}
-function parseForSort(v){
-  if (v===null || v===undefined) return -Infinity;
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string'){
-    if (v.endsWith?.('%')) return parseFloat(v);
-    if (v === '—' || v === '∞') return v === '∞' ? Number.POSITIVE_INFINITY : -Infinity;
-    return parseFloat(v.replaceAll?.(',','') ?? v);
-  }
-  return +v || 0;
-}
