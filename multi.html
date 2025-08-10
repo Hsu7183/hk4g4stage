@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>三劍客台指期策略分析（批量版）</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>三劍客台指期策略分析（批量版）</h1>
+      <div class="actions">
+        <label class="btn primary">選擇多個檔案
+          <input type="file" id="filesInput" accept=".txt,.TF" hidden multiple />
+        </label>
+        <button class="btn" id="btn-clear">清空結果</button>
+      </div>
+    </header>
+
+    <div class="panel parambar" id="paramBar" hidden>
+      <span class="tag name" id="pName">—</span>
+      <span class="tag mono" id="pParams">—</span>
+      <span class="muted" id="loadStat" style="margin-left:auto"></span>
+    </div>
+
+    <section class="panel">
+      <div class="grid-2">
+        <div>
+          <h2>第一列收益曲線</h2>
+          <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+        </div>
+        <div>
+          <h2>第一列交易紀錄</h2>
+          <div style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:10px">
+            <table>
+              <thead>
+                <tr>
+                  <th>筆數</th><th>進場時間</th><th>進場價</th>
+                  <th>出場時間</th><th>出場價</th><th>方向</th><th>點數</th>
+                  <th>手續費</th><th>期交稅</th><th>獲利</th><th>累積獲利</th>
+                  <th>滑價獲利</th><th>累積滑價獲利</th>
+                </tr>
+              </thead>
+              <tbody id="tradesBody">
+                <tr><td colspan="13" style="color:#777">尚未載入</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>彙總結果</h2>
+      <div class="muted" style="margin:.25rem 0">
+        TXT 第一行若為參數則會自動擷取；下方表格可排序，排序後上方會即時換成第一列資料。
+      </div>
+      <table id="tblBatch">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+
+      <div style="margin-top:12px" id="kpiBlocks"></div>
+    </section>
+  </main>
+
+  <script src="app-multi.js"></script>
+</body>
+</html>
