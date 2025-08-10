@@ -12,7 +12,8 @@
     body.wide .toolbar,
     body.wide .sub,
     body.wide .table-wrap,
-    body.wide #topSplit { max-width:100%; margin:1rem auto; padding:0 1rem; }
+    body.wide #topSplit,
+    body.wide #topKPI { max-width:100%; margin:1rem auto; padding:0 1rem; }
 
     .toolbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
     .hint{color:#666;font-size:.86rem}
@@ -32,13 +33,20 @@
     #tradesBox th,#tradesBox td{border-bottom:1px solid var(--border); padding:.35rem .3rem; text-align:center}
     #tradesBox thead th{position:sticky; top:0; background:#fafafa; z-index:1}
 
-    /* 表頭排序 */
+    /* 第一列 KPI 區塊 */
+    #topKPI{background:#fff;border:1px solid var(--border);border-radius:.5rem;padding:.8rem}
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem .8rem}
+    .kpi-card{border:1px solid var(--border);border-radius:.5rem;padding:.6rem .7rem}
+    .kpi-card h3{margin:.1rem 0 .4rem;font-size:.95rem;border-bottom:1px solid var(--border);padding-bottom:.3rem}
+    .kpi-item{white-space:nowrap;font-size:.86rem}
+    .kpi-key{color:#555}
+    .kpi-val{font-weight:600}
+
+    /* 下方表格：表頭排序、第一欄固定 */
     th.sortable{cursor:pointer; position:relative; user-select:none;}
     th.sortable::after{content:"⇅"; font-size:.8rem; color:#999; position:absolute; right:.35rem; top:50%; transform:translateY(-50%);}
     th.sortable.asc::after{content:"↑";}
     th.sortable.desc::after{content:"↓";}
-
-    /* 第一欄固定 */
     table.sticky th:first-child, table.sticky td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
     table.sticky thead th:first-child { z-index: 2; background:#fafafa; }
     .nowrap{white-space:nowrap}
@@ -81,8 +89,14 @@
     </div>
   </div>
 
+  <!-- 第一列 KPI -->
+  <div id="topKPI">
+    <h2 class="sub" style="margin:.2rem 0 .6rem">第一列數值彙整（全部 / 多單 / 空單）</h2>
+    <div class="kpi-grid" id="kpiGrid"></div>
+  </div>
+
   <div class="toolbar">
-    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序（排序後，上方改為第一列資料）。</div>
+    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：短檔名 + 參數 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序（排序後，上方改為第一列資料）。</div>
     <div class="stats" id="loadStat"></div>
   </div>
 
@@ -94,6 +108,6 @@
     </table>
   </div>
 
-  <script type="module" src="app-multi.js?v=2025-08-10b"></script>
+  <script type="module" src="app-multi.js?v=2025-08-10c"></script>
 </body>
 </html>
