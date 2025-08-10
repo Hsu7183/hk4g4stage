@@ -3,23 +3,26 @@
 <head>
   <meta charset="utf-8" />
   <title>三劍客台指期策略分析｜入口</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main class="container">
+  <header class="topbar">
     <h1>三劍客台指期策略分析｜入口</h1>
-    <div class="grid-2">
-      <section class="card">
-        <h2>單檔分析</h2>
-        <p class="muted">貼上或選擇 1 個 TXT；顯示收益曲線 / KPI / 交易表。</p>
-        <a class="btn primary" href="single.html">進入單檔版</a>
-      </section>
-      <section class="card">
-        <h2>批量分析</h2>
-        <p class="muted">一次載入 ~1,000 個 TXT；每檔一列可排序；上方顯示第一列的圖＋交易表。</p>
-        <a class="btn primary" href="multi.html">進入批量版</a>
-      </section>
-    </div>
+  </header>
+
+  <main class="cards">
+    <a class="card" href="single.html">
+      <h3>單檔分析</h3>
+      <p>貼上或載入 1 個 TXT；顯示：單檔參數 / 收益曲線 / KPI / 交易紀錄。</p>
+      <button class="btn primary">進入單檔版</button>
+    </a>
+
+    <a class="card" href="multi.html">
+      <h3>批量分析</h3>
+      <p>一次載入最多 ~1,000 個 TXT；彙總每檔 KPI；點選(或排序)可切換「第一列」視圖。</p>
+      <button class="btn primary">進入批量版</button>
+    </a>
   </main>
 </body>
 </html>
