@@ -14,7 +14,7 @@ const tbody      = tbl.querySelector('tbody');
 const cvs        = document.getElementById('equityChart');
 const loadStat   = document.getElementById('loadStat');
 const tradesBody = document.getElementById('tradesBody');
-const kpiGrid    = document.getElementById('kpiGrid');
+const kpiBlocks  = document.getElementById('kpiBlocks');
 
 let chart;
 
@@ -31,10 +31,10 @@ const KPI_ORDER = [
 ];
 const GROUPS = ['全部','多單','空單'];
 
-/* ===== 狀態（排序/畫圖/檔案參考） ===== */
+/* ===== 狀態 ===== */
 let rowsData = []; // { filename, shortName, paramsText, fileRef, kpi, sortCache, equitySeq?, tsSeq?, trades? }
 
-/* ===== 事件：選檔（逐檔 await） ===== */
+/* ===== 事件：選檔 ===== */
 filesInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   if (!files.length) return;
@@ -44,8 +44,7 @@ filesInput.addEventListener('change', async (e) => {
   tbody.innerHTML = '';
   updateLoadStat(0, files.length, 0);
 
-  let failed = 0;
-  let firstDrawn = false;
+  let failed = 0, firstDrawn = false;
 
   for (const [idx, f] of files.entries()) {
     try {
@@ -64,7 +63,7 @@ filesInput.addEventListener('change', async (e) => {
 
       appendRow(shortName, paramsText, kpi);
 
-      if (needFull && tsSeq && tsSeq.length && equitySeq?.tot?.length) {
+      if (needFull && tsSeq?.length && equitySeq?.tot?.length) {
         drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
         renderTrades(trades);
         renderTopKPI(kpi);
@@ -73,7 +72,7 @@ filesInput.addEventListener('change', async (e) => {
     } catch (err) {
       console.error('解析失敗：', f.name, err);
       const { shortName, paramsText } = parseFilename(f.name);
-      rowsData.push({ filename: f.name, shortName, paramsText, fileRef: f, kpi: null, sortCache: null });
+      rowsData.push({ filename:f.name, shortName, paramsText, fileRef:f, kpi:null, sortCache:null });
       appendErrorRow(shortName, paramsText, err);
       failed++;
     } finally {
@@ -90,10 +89,10 @@ btnClear.addEventListener('click', () => {
   updateLoadStat(0,0,0);
   if (chart) chart.destroy();
   tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">尚未載入</td></tr>`;
-  kpiGrid.innerHTML = '';
+  kpiBlocks.innerHTML = '';
 });
 
-/* ===== 讀檔（big5→utf-8 回退） ===== */
+/* ===== 讀檔 ===== */
 function readFileWithFallback(file) {
   const read = (enc) => new Promise((ok, no) => {
     const r = new FileReader();
@@ -104,16 +103,16 @@ function readFileWithFallback(file) {
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 檔名解析：短檔名 + 參數列 ===== */
+/* ===== 檔名 → 短檔名 + 參數列 ===== */
 function parseFilename(name='') {
-  const base = name.replace(/\.[^.]+$/, ''); // 去副檔名
+  const base = name.replace(/\.[^.]+$/, '');
   const parts = base.split('_').filter(Boolean);
-  const short = parts.slice(0,3).join('_') || base;         // 取前三段：日期_時間_策略縮碼
-  const params = parts.slice(3).join(' / ') || '—';         // 其餘段落當參數列
+  const short = parts.slice(0,3).join('_') || base;   // 例：20250810_025945_P
+  const params = parts.slice(3).join(' ／ ') || '—';  // 參數以「 ／ 」分隔，像圖1那樣緊湊
   return { shortName: short, paramsText: params };
 }
 
-/* ===== 解析：可選擇只算 KPI 或完整（序列 + 交易） ===== */
+/* ===== 解析 ===== */
 function analyse(raw, opts={ needFull:false }) {
   const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
@@ -124,8 +123,7 @@ function analyse(raw, opts={ needFull:false }) {
     const parts = r.trim().split(/\s+/);
     if (parts.length < 3) continue;
     const [tsRaw, pStr, act] = parts;
-    const price = +pStr;
-    if (!Number.isFinite(price)) continue;
+    const price = +pStr; if (!Number.isFinite(price)) continue;
 
     if (ENTRY.includes(act)) { q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw }); continue; }
 
@@ -145,11 +143,11 @@ function analyse(raw, opts={ needFull:false }) {
     const slipMoney = (CFG.slipMode === 'half-per-fill') ? (SLIP * MULT * 2) : (SLIP * MULT);
     const gainSlip  = gain - slipMoney;
 
-    const t = { pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip, fee, tax };
-    tr.push(t);
-
     cum += gain; cumSlip += gainSlip;
     (pos.side === 'L') ? (cumL += gain) : (cumS += gain);
+
+    const t = { pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip, fee, tax, cum, cumSlip };
+    tr.push(t);
 
     if (opts.needFull) {
       tsArr.push(tsRaw);
@@ -164,7 +162,7 @@ function analyse(raw, opts={ needFull:false }) {
   return { kpi, equitySeq, tsSeq, trades };
 }
 
-/* ===== KPI ===== */
+/* ===== KPI 計算 ===== */
 function buildKPI(tr, seq) {
   const sum = a => a.reduce((x,y)=>x+y,0);
   const pct = x => (x*100).toFixed(1)+'%';
@@ -209,7 +207,7 @@ function emptyStats(){
     pf:'—', avgW:0, avgL:0, rr:'—', expectancy:0, maxWinStreak:0, maxLossStreak:0 };
 }
 
-/* ===== 表頭（可排序；含短檔名/參數） ===== */
+/* ===== 表頭（短檔名 / 參數 + KPI；排序後同步上方資料） ===== */
 function buildHeader(){
   const cells = [
     '<th class="nowrap sortable" data-key="__filename">短檔名</th>',
@@ -219,7 +217,6 @@ function buildHeader(){
     cells.push(`<th class="nowrap sortable" data-key="${g}.${key}">${g}-${label}</th>`);
   thead.innerHTML = `<tr>${cells.join('')}</tr>`;
 
-  // 排序事件：排序後即時切換到第一列資料（圖 + 交易表 + KPI）
   let currentKey = null, currentDir = 'asc';
   thead.querySelectorAll('th.sortable').forEach(th=>{
     th.addEventListener('click', async ()=>{
@@ -270,13 +267,13 @@ function sortRows(key, dir){
   for (const r of rowsData) r.kpi ? appendRow(r.shortName, r.paramsText, r.kpi) : appendErrorRow(r.shortName, r.paramsText, new Error('解析失敗'));
 }
 
-/* ===== 依第一列重畫（若未載入過，動態讀檔解析） ===== */
+/* ===== 切第一列到上方（若未載入過，現場重算） ===== */
 async function redrawFromTopRow(){
-  const first = rowsData.find(r => r.kpi); // 第一個成功的
+  const first = rowsData.find(r => r.kpi);
   if (!first) {
     if (chart) chart.destroy();
     tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">沒有可用資料</td></tr>`;
-    kpiGrid.innerHTML = '';
+    kpiBlocks.innerHTML = '';
     return;
   }
   if (!first.tsSeq || !first.equitySeq || !first.trades) {
@@ -295,7 +292,7 @@ async function redrawFromTopRow(){
   renderTopKPI(first.kpi);
 }
 
-/* ===== 渲染下方表 ===== */
+/* ===== 下方彙總表渲染 ===== */
 function appendRow(shortName, paramsText, kpi){
   const tds = [
     `<td class="nowrap" title="${escapeHTML(shortName)}">${escapeHTML(shortName)}</td>`,
@@ -313,12 +310,13 @@ function appendErrorRow(shortName, paramsText, err){
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 上方：圖表 + 交易明細 + KPI ===== */
+/* ===== 上方：圖表（圖3樣式） ===== */
 function drawChart(tsArr, T, L, S, P){
   try{
     if (chart) chart.destroy();
     if (!tsArr?.length) return;
 
+    // 產 x 軸月份序
     const ym2Date = ym => new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
     const addM = (d,n)=> new Date(d.getFullYear(), d.getMonth()+n);
     const start = addM(ym2Date(tsArr[0].slice(0,6)), -1);
@@ -330,60 +328,93 @@ function drawChart(tsArr, T, L, S, P){
       return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24) / daysInMonth(y,m);
     });
 
-    const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:0});
+    // 交錯灰帶 + 最後一點金額標籤（不用外掛）
+    const stripes = {id:'stripes', beforeDraw(c){const {ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+      ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.06)':'transparent';ctx.fillRect(left+i*w,top,w,bottom-top);});ctx.restore();}};
+    const lastLabels = {id:'lastLabels', afterDatasetsDraw(c,args,plg){
+      const {ctx,chartArea:{left,right,top,bottom}}=c, ds=c.data.datasets;
+      ctx.save(); ctx.font='12px system-ui, -apple-system, Segoe UI, sans-serif'; ctx.fillStyle='#000';
+      [0,1,2,3].forEach(k=>{
+        const meta = c.getDatasetMeta(k); if (!meta?.data?.length) return;
+        const p = meta.data[meta.data.length-1]; if (!p) return;
+        const val = ds[k].data[ds[k].data.length-1]; if (val==null) return;
+        const txt = Number(val).toLocaleString('zh-TW');
+        ctx.textAlign='left'; ctx.textBaseline='middle';
+        ctx.fillText(txt, p.x+6, p.y);
+      });
+      ctx.restore();
+    }};
+
+    const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:3,pointHoverRadius:4});
 
     chart = new Chart(cvs, {
       type:'line',
-      data:{ labels:X, datasets:[ mkLine(T,'#fbc02d'), mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121') ] },
+      data:{ labels:X, datasets:[
+        mkLine(T,'#000000'), // 總（黑）
+        mkLine(L,'#2e7d32'), // 多（綠）
+        mkLine(S,'#d32f2f'), // 空（紅）
+        mkLine(P,'#f6b300')  // 滑價（黃）
+      ]},
       options:{
         responsive:true, maintainAspectRatio:false,
         layout:{padding:{bottom:42,right:60}},
         plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}} },
-        scales:{ x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},
-                 y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}} }
-      }
+        scales:{
+          x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{callback:(v,i)=>months[i]??''}},
+          y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}
+        }
+      },
+      plugins:[stripes,lastLabels]
     });
   }catch(err){
     console.error('畫圖發生錯誤：', err);
   }
 }
 
+/* ===== 上方：交易紀錄（圖2雙列樣式） ===== */
 function renderTrades(trades){
   if (!trades?.length) {
     tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">此檔沒有成功配對的交易</td></tr>`;
     return;
   }
+  let cumGain = 0, cumSlip = 0;
   const rows = trades.map((t, i) => {
-    const side = t.pos.side === 'L' ? '多' : '空';
-    return `
-    <tr>
-      <td>${i+1}</td>
-      <td>${fmtTs(t.pos.tsIn)}</td>
-      <td>${fmt(t.pos.pIn)}</td>
-      <td>${side}</td>
-      <td>${fmtTs(t.tsOut)}</td>
-      <td>${fmt(t.priceOut)}</td>
-      <td>${fmt(t.pts)}</td>
-      <td>${fmt(t.fee)}</td>
-      <td>${fmt(t.tax)}</td>
-      <td>${fmt(t.gain)}</td>
-      <td>${fmt(t.gainSlip)}</td>
-    </tr>`;
+    // 入場列
+    const r1 = `
+      <tr>
+        <td rowspan="2">${i+1}</td>
+        <td>${fmtTs(t.pos.tsIn)}</td><td>${fmt(t.pos.pIn)}</td><td>${t.pos.side==='L'?'新買':'新賣'}</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+      </tr>`;
+    // 出場列（含累積）
+    cumGain += t.gain; cumSlip += t.gainSlip;
+    const r2 = `
+      <tr>
+        <td>${fmtTs(t.tsOut)}</td><td>${fmt(t.priceOut)}</td><td>${t.pos.side==='L'?'平賣':'平買'}</td>
+        <td>${fmt(t.pts)}</td><td>${fmt(t.fee)}</td><td>${fmt(t.tax)}</td>
+        <td>${fmt(t.gain)}</td><td>${fmt(cumGain)}</td>
+        <td>${fmt(t.gainSlip)}</td><td>${fmt(cumSlip)}</td>
+      </tr>`;
+    return r1 + r2;
   }).join('');
   tradesBody.innerHTML = rows;
 }
 
+/* ===== 上方：KPI（圖1平鋪樣式） ===== */
 function renderTopKPI(kpi){
-  if (!kpi) { kpiGrid.innerHTML=''; return; }
+  if (!kpi) { kpiBlocks.innerHTML=''; return; }
   const groups = ['全部','多單','空單'];
   const html = groups.map(g=>{
     const obj = kpi[g] || {};
-    const items = KPI_ORDER.map(([label,key]) => `
-      <div class="kpi-item"><span class="kpi-key">${label}</span>：<span class="kpi-val">${fmt(obj[key])}</span></div>
+    const line = KPI_ORDER.map(([label,key]) => `
+      <span class="kpi-item"><span class="kpi-key">${label}</span>：<span class="kpi-val">${fmt(obj[key])}</span></span>
     `).join('');
-    return `<div class="kpi-card"><h3>${g}</h3>${items}</div>`;
+    return `<div class="kpi-block">
+      <div class="kpi-title">${g}</div>
+      <div class="kpi-line">${line}</div>
+    </div>`;
   }).join('');
-  kpiGrid.innerHTML = html;
+  kpiBlocks.innerHTML = html;
 }
 
 /* ===== 小工具 ===== */
@@ -391,6 +422,6 @@ function updateLoadStat(done, total, failed){
   if (!total) { loadStat.textContent = ''; return; }
   loadStat.textContent = `載入：${done}/${total}，成功：${done - failed}，失敗：${failed}`;
 }
-const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : (n ?? '—');
+const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:0}) : (n ?? '—');
 const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
 function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
