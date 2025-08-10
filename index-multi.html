@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css" />
 
   <style>
-    /* 全寬 */
+    /* 全寬容器 */
     body.wide header,
     body.wide .toolbar,
     body.wide .sub,
@@ -19,30 +19,30 @@
     .hint{color:#666;font-size:.86rem}
     .stats{color:#555;font-size:.86rem}
 
-    /* 上方左右各半（圖 / 交易明細） */
+    /* 上半：左圖右交易 */
     #topSplit{display:grid;grid-template-columns:1fr 1fr;gap:1rem;align-items:start}
     #chartBox{
-      width:100%; height:360px; background:#fff; border:1px solid var(--border);
+      width:100%; height:380px; background:#fff; border:1px solid var(--border);
       border-radius:.5rem; padding:.6rem; box-sizing:border-box;
     }
     #tradesBox{
-      height:360px; background:#fff; border:1px solid var(--border);
+      height:380px; background:#fff; border:1px solid var(--border);
       border-radius:.5rem; padding:.6rem; box-sizing:border-box; overflow:auto;
     }
     #tradesBox table{width:100%; border-collapse:collapse; font-size:.84rem}
     #tradesBox th,#tradesBox td{border-bottom:1px solid var(--border); padding:.35rem .3rem; text-align:center}
     #tradesBox thead th{position:sticky; top:0; background:#fafafa; z-index:1}
 
-    /* 第一列 KPI 區塊 */
+    /* 第一列 KPI：圖 1 的條列風格 */
     #topKPI{background:#fff;border:1px solid var(--border);border-radius:.5rem;padding:.8rem}
-    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem .8rem}
-    .kpi-card{border:1px solid var(--border);border-radius:.5rem;padding:.6rem .7rem}
-    .kpi-card h3{margin:.1rem 0 .4rem;font-size:.95rem;border-bottom:1px solid var(--border);padding-bottom:.3rem}
-    .kpi-item{white-space:nowrap;font-size:.86rem}
-    .kpi-key{color:#555}
-    .kpi-val{font-weight:600}
+    .kpi-block{margin:.6rem 0 .8rem}
+    .kpi-title{font-weight:700;margin:.2rem 0 .4rem}
+    .kpi-line{display:flex;flex-wrap:wrap;gap:1rem .8rem}
+    .kpi-item{white-space:nowrap;font-size:.95rem}
+    .kpi-key{color:#444}
+    .kpi-val{font-weight:700}
 
-    /* 下方表格：表頭排序、第一欄固定 */
+    /* 下方彙總表：表頭排序、第一欄固定 */
     th.sortable{cursor:pointer; position:relative; user-select:none;}
     th.sortable::after{content:"⇅"; font-size:.8rem; color:#999; position:absolute; right:.35rem; top:50%; transform:translateY(-50%);}
     th.sortable.asc::after{content:"↑";}
@@ -78,9 +78,10 @@
         <table>
           <thead>
             <tr>
-              <th>#</th><th>進場時間</th><th>進場價</th><th>方向</th>
-              <th>出場時間</th><th>出場價</th><th>點數</th><th>手續費</th>
-              <th>稅</th><th>獲利</th><th>滑價獲利</th>
+              <th>筆數</th><th>時間</th><th>價格</th><th>類型</th>
+              <th>點數</th><th>手續費</th><th>期交稅</th>
+              <th>獲利</th><th>累積獲利</th>
+              <th>滑價獲利</th><th>累積滑價獲利</th>
             </tr>
           </thead>
           <tbody id="tradesBody"><tr><td colspan="11" style="color:#777">尚未載入</td></tr></tbody>
@@ -89,14 +90,14 @@
     </div>
   </div>
 
-  <!-- 第一列 KPI -->
+  <!-- 第一列 KPI（圖1樣式） -->
   <div id="topKPI">
     <h2 class="sub" style="margin:.2rem 0 .6rem">第一列數值彙整（全部 / 多單 / 空單）</h2>
-    <div class="kpi-grid" id="kpiGrid"></div>
+    <div id="kpiBlocks"></div>
   </div>
 
   <div class="toolbar">
-    <div class="hint">一次可選最多約 1,000 筆 TXT；每列：短檔名 + 參數 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序（排序後，上方改為第一列資料）。</div>
+    <div class="hint">一次可選最多約 1,000 筆；下表：短檔名 + 參數 + KPI。任一欄點擊可排序；排序後，上方切到第一列資料。</div>
     <div class="stats" id="loadStat"></div>
   </div>
 
@@ -108,6 +109,6 @@
     </table>
   </div>
 
-  <script type="module" src="app-multi.js?v=2025-08-10c"></script>
+  <script type="module" src="app-multi.js?v=2025-08-10d"></script>
 </body>
 </html>
