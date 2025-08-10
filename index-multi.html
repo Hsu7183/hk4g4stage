@@ -6,25 +6,19 @@
 
   <link rel="stylesheet" href="style.css" />
 
-  <!-- 全寬覆蓋：把原本 1200px 的限制放寬到 100% -->
   <style>
+    /* 全寬 */
     body.wide header,
     body.wide .toolbar,
     body.wide .sub,
     body.wide .table-wrap,
-    body.wide #chartWrap {
-      max-width: 100%;
-      margin: 1rem auto;
-      padding: 0 1rem;
-    }
+    body.wide #chartWrap { max-width:100%; margin:1rem auto; padding:0 1rem; }
     .toolbar{display:flex;gap:.6rem;align-items:center}
     .hint{color:#666;font-size:.86rem}
 
-    /* 表頭可排序的視覺提示 */
+    /* 表頭排序 */
     th.sortable{cursor:pointer; position:relative; user-select:none;}
-    th.sortable::after{
-      content:"⇅"; font-size:.8rem; color:#999; position:absolute; right:.35rem; top:50%; transform:translateY(-50%);
-    }
+    th.sortable::after{content:"⇅"; font-size:.8rem; color:#999; position:absolute; right:.35rem; top:50%; transform:translateY(-50%);}
     th.sortable.asc::after{content:"↑";}
     th.sortable.desc::after{content:"↓";}
 
@@ -41,9 +35,8 @@
     }
   </style>
 
-  <!-- 圖表程式庫（只用在顯示第一筆用） -->
+  <!-- 僅用 Chart.js；避免外掛缺失造成整段中止 -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
 <body class="wide">
   <header>
