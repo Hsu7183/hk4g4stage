@@ -13,8 +13,9 @@
     body.wide .sub,
     body.wide .table-wrap,
     body.wide #chartWrap { max-width:100%; margin:1rem auto; padding:0 1rem; }
-    .toolbar{display:flex;gap:.6rem;align-items:center}
+    .toolbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
     .hint{color:#666;font-size:.86rem}
+    .stats{color:#555;font-size:.86rem}
 
     /* 表頭排序 */
     th.sortable{cursor:pointer; position:relative; user-select:none;}
@@ -35,7 +36,7 @@
     }
   </style>
 
-  <!-- 僅用 Chart.js；避免外掛缺失造成整段中止 -->
+  <!-- 只用 Chart.js（避免外掛缺失造成中止） -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body class="wide">
@@ -59,6 +60,7 @@
 
   <div class="toolbar">
     <div class="hint">一次可選最多約 1,000 筆 TXT；每列：檔名 + <b>全部 / 多單 / 空單</b> 全部 KPI。點欄位可排序。</div>
+    <div class="stats" id="loadStat"></div>
   </div>
 
   <h2 class="sub">彙總結果</h2>
@@ -69,6 +71,7 @@
     </table>
   </div>
 
-  <script type="module" src="app-multi.js"></script>
+  <!-- 加上版本參數，避免瀏覽器沿用舊快取 -->
+  <script type="module" src="app-multi.js?v=2025-08-10a"></script>
 </body>
 </html>
