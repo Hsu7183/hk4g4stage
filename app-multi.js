@@ -13,6 +13,7 @@ const thead      = tbl.querySelector('thead');
 const tbody      = tbl.querySelector('tbody');
 const cvs        = document.getElementById('equityChart');
 const loadStat   = document.getElementById('loadStat');
+const tradesBody = document.getElementById('tradesBody');
 
 let chart;
 
@@ -29,10 +30,10 @@ const KPI_ORDER = [
 ];
 const GROUPS = ['全部','多單','空單'];
 
-/* ===== 狀態（排序/畫圖） ===== */
-let rowsData = []; // { filename, kpi, sortCache, equitySeq, tsSeq }
+/* ===== 狀態（排序/畫圖/檔案參考） ===== */
+let rowsData = []; // { filename, fileRef, kpi, sortCache, equitySeq?, tsSeq?, trades? }
 
-/* ===== 事件：選檔（逐檔 await，任何一檔錯也不中斷） ===== */
+/* ===== 事件：選檔（逐檔 await） ===== */
 filesInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   if (!files.length) return;
@@ -42,35 +43,41 @@ filesInput.addEventListener('change', async (e) => {
   tbody.innerHTML = '';
   updateLoadStat(0, files.length, 0);
 
-  let success = 0, failed = 0;
+  let failed = 0;
 
-  // 逐檔處理，第一筆保留序列供畫圖
+  // 第一個可用檔，解析完整（含序列與交易）
   let firstDrawn = false;
 
   for (const [idx, f] of files.entries()) {
     try {
+      // 第一筆做完整資料，其餘先算 KPI 以省記憶體
+      const needFull = !firstDrawn;
       const text = await readFileWithFallback(f);
-      const needSeq = !firstDrawn;
-      const { kpi, equitySeq, tsSeq } = analyse(text, { needSeq });
-      rowsData.push({ filename: f.name, kpi, sortCache: buildSortCache(kpi), equitySeq, tsSeq });
+      const { kpi, equitySeq, tsSeq, trades } = analyse(text, { needFull });
+
+      rowsData.push({
+        filename: f.name, fileRef: f, kpi, sortCache: buildSortCache(kpi),
+        equitySeq: needFull ? equitySeq : null,
+        tsSeq:     needFull ? tsSeq     : null,
+        trades:    needFull ? trades    : null
+      });
+
       appendRow(f.name, kpi);
 
-      if (needSeq && tsSeq && tsSeq.length && equitySeq?.tot?.length) {
+      if (needFull && tsSeq && tsSeq.length && equitySeq?.tot?.length) {
         drawChart(tsSeq, equitySeq.tot, equitySeq.lon, equitySeq.sho, equitySeq.sli);
+        renderTrades(trades);
         firstDrawn = true;
       }
-      success++;
     } catch (err) {
       console.error('解析失敗：', f.name, err);
-      rowsData.push({ filename: f.name, kpi: null, sortCache: null });
+      rowsData.push({ filename: f.name, fileRef: f, kpi: null, sortCache: null });
       appendErrorRow(f.name, err);
       failed++;
     } finally {
       updateLoadStat(idx+1, files.length, failed);
     }
   }
-
-  // 如果全部失敗，至少顯示一列錯誤說明（上面已逐檔顯示，這裡不用再處理）
 });
 
 btnClear.addEventListener('click', () => {
@@ -80,6 +87,7 @@ btnClear.addEventListener('click', () => {
   rowsData = [];
   updateLoadStat(0,0,0);
   if (chart) chart.destroy();
+  tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">尚未載入</td></tr>`;
 });
 
 /* ===== 讀檔（big5→utf-8 回退） ===== */
@@ -93,8 +101,8 @@ function readFileWithFallback(file) {
   return (async () => { try { return await read('big5'); } catch { return await read(); } })();
 }
 
-/* ===== 解析：回傳 KPI 與（可選）收益序列 ===== */
-function analyse(raw, opts={needSeq:false}) {
+/* ===== 解析：可選擇只算 KPI 或完整（序列 + 交易） ===== */
+function analyse(raw, opts={ needFull:false }) {
   const rows = (raw || '').trim().split(/\r?\n/).filter(Boolean);
   const q = [], tr = [];
   const tsArr = [], tot = [], lon = [], sho = [], sli = [];
@@ -128,16 +136,20 @@ function analyse(raw, opts={needSeq:false}) {
     cum += gain; cumSlip += gainSlip;
     (pos.side === 'L') ? (cumL += gain) : (cumS += gain);
 
-    tr.push({ pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip });
+    const t = { pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip, fee, tax };
+    tr.push(t);
 
-    if (opts.needSeq) {
+    if (opts.needFull) {
       tsArr.push(tsRaw);
       tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
     }
   }
 
   const kpi = buildKPI(tr, { tot, lon, sho, sli });
-  return { kpi, equitySeq: opts.needSeq ? { tot, lon, sho, sli } : null, tsSeq: opts.needSeq ? tsArr : null };
+  const equitySeq = opts.needFull ? { tot, lon, sho, sli } : null;
+  const tsSeq = opts.needFull ? tsArr : null;
+  const trades = opts.needFull ? tr : null;
+  return { kpi, equitySeq, tsSeq, trades };
 }
 
 /* ===== KPI ===== */
@@ -157,8 +169,9 @@ function buildKPI(tr, seq) {
 
   const make = (list, seq) => {
     if (!list.length) return emptyStats();
+    const sumN = a => a.reduce((x,y)=>x+y,0);
     const win = list.filter(t=>t.gain>0), loss = list.filter(t=>t.gain<0);
-    const winAmt = sum(win.map(t=>t.gain)), lossAmt = -sum(loss.map(t=>t.gain));
+    const winAmt = sumN(win.map(t=>t.gain)), lossAmt = -sumN(loss.map(t=>t.gain));
     const pf = lossAmt===0 ? (winAmt>0?'∞':'—') : (winAmt/lossAmt).toFixed(2);
     const avgW = win.length?winAmt/win.length:0;
     const avgL = loss.length?-(lossAmt/loss.length):0;
@@ -167,15 +180,15 @@ function buildKPI(tr, seq) {
     const {mw,ml} = streaks(list);
     return {
       n:list.length, winRate:pct(win.length/list.length), lossRate:pct(loss.length/list.length),
-      posPts:sum(win.map(t=>t.pts)), negPts:sum(loss.map(t=>t.pts)), sumPts:sum(list.map(t=>t.pts)),
-      sumGain:sum(list.map(t=>t.gain)), sumGainSlip:sum(list.map(t=>t.gainSlip)),
+      posPts:sumN(win.map(t=>t.pts)), negPts:sumN(loss.map(t=>t.pts)), sumPts:sumN(list.map(t=>t.pts)),
+      sumGain:sumN(list.map(t=>t.gain)), sumGainSlip:sumN(list.map(t=>t.gainSlip)),
       maxDay:safeMax(byDay(list)), minDay:safeMin(byDay(list)),
-      maxRunUp:runUp(seq||[]), maxDrawdown:drawDn(seq||[]),
+      maxRunUp:runUp(seq?.tot||[]), maxDrawdown:drawDn(seq?.tot||[]),
       pf, avgW, avgL, rr, expectancy:exp, maxWinStreak:mw, maxLossStreak:ml
     };
   };
 
-  return { 全部:make(tr,seq.tot), 多單:make(longs,seq.lon), 空單:make(shorts,seq.sho) };
+  return { 全部:make(tr,seq), 多單:make(longs, {tot:seq?.lon}), 空單:make(shorts, {tot:seq?.sho}) };
 }
 function emptyStats(){
   return { n:0, winRate:'0.0%', lossRate:'0.0%',
@@ -191,18 +204,17 @@ function buildHeader(){
     cells.push(`<th class="nowrap sortable" data-key="${g}.${key}">${g}-${label}</th>`);
   thead.innerHTML = `<tr>${cells.join('')}</tr>`;
 
-  // 排序事件
+  // 排序事件：排序後即時切換到第一列資料（圖 + 交易表）
   let currentKey = null, currentDir = 'asc';
   thead.querySelectorAll('th.sortable').forEach(th=>{
-    th.addEventListener('click', ()=>{
+    th.addEventListener('click', async ()=>{
       const key = th.dataset.key;
       if (currentKey === key) currentDir = (currentDir==='asc' ? 'desc' : 'asc');
       else { currentKey = key; currentDir = 'asc'; }
       thead.querySelectorAll('th.sortable').forEach(h=>h.classList.remove('asc','desc'));
       th.classList.add(currentDir);
       sortRows(currentKey, currentDir);
-      // 若你希望排序後用「第一列」重畫圖，解除下一行註解
-      // redrawFromTopRow();
+      await redrawFromTopRow(); // ← 這行會確保上方同步更新
     });
   });
 }
@@ -239,14 +251,32 @@ function sortRows(key, dir){
   tbody.innerHTML = '';
   for (const r of rowsData) r.kpi ? appendRow(r.filename, r.kpi) : appendErrorRow(r.filename, new Error('解析失敗'));
 }
-function redrawFromTopRow(){
-  const first = rowsData.find(r => !!r.equitySeq && !!r.tsSeq);
-  if (!first) return;
-  const { tsSeq, equitySeq: { tot, lon, sho, sli } } = first;
+
+/* ===== 依第一列重畫（若未載入過，動態讀檔解析） ===== */
+async function redrawFromTopRow(){
+  const first = rowsData.find(r => r.kpi); // 第一個成功的
+  if (!first) {
+    if (chart) chart.destroy();
+    tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">沒有可用資料</td></tr>`;
+    return;
+  }
+  // 若沒有序列與交易，現場重算一次（只對第一列做）
+  if (!first.tsSeq || !first.equitySeq || !first.trades) {
+    try {
+      const text = await readFileWithFallback(first.fileRef);
+      const { equitySeq, tsSeq, trades } = analyse(text, { needFull:true });
+      first.equitySeq = equitySeq; first.tsSeq = tsSeq; first.trades = trades;
+    } catch (err) {
+      console.error('重算第一列失敗：', first.filename, err);
+      return;
+    }
+  }
+  const { tsSeq, equitySeq:{tot,lon,sho,sli}, trades } = first;
   drawChart(tsSeq, tot, lon, sho, sli);
+  renderTrades(trades);
 }
 
-/* ===== 渲染表 ===== */
+/* ===== 渲染下方表 ===== */
 function appendRow(filename, kpi){
   const tds = [`<td class="nowrap">${escapeHTML(filename)}</td>`];
   for (const g of GROUPS) {
@@ -261,7 +291,7 @@ function appendErrorRow(filename, err){
   tbody.insertAdjacentHTML('beforeend', row);
 }
 
-/* ===== 畫圖（只畫第一筆） ===== */
+/* ===== 上方：圖表 + 交易明細 ===== */
 function drawChart(tsArr, T, L, S, P){
   try{
     if (chart) chart.destroy();
@@ -296,10 +326,36 @@ function drawChart(tsArr, T, L, S, P){
   }
 }
 
+function renderTrades(trades){
+  if (!trades?.length) {
+    tradesBody.innerHTML = `<tr><td colspan="11" style="color:#777">此檔沒有成功配對的交易</td></tr>`;
+    return;
+  }
+  const rows = trades.map((t, i) => {
+    const side = t.pos.side === 'L' ? '多' : '空';
+    return `
+    <tr>
+      <td>${i+1}</td>
+      <td>${fmtTs(t.pos.tsIn)}</td>
+      <td>${fmt(t.pos.pIn)}</td>
+      <td>${side}</td>
+      <td>${fmtTs(t.tsOut)}</td>
+      <td>${fmt(t.priceOut)}</td>
+      <td>${fmt(t.pts)}</td>
+      <td>${fmt(t.fee)}</td>
+      <td>${fmt(t.tax)}</td>
+      <td>${fmt(t.gain)}</td>
+      <td>${fmt(t.gainSlip)}</td>
+    </tr>`;
+  }).join('');
+  tradesBody.innerHTML = rows;
+}
+
 /* ===== 小工具 ===== */
 function updateLoadStat(done, total, failed){
   if (!total) { loadStat.textContent = ''; return; }
   loadStat.textContent = `載入：${done}/${total}，成功：${done - failed}，失敗：${failed}`;
 }
 const fmt = n => (typeof n==='number' && isFinite(n)) ? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : (n ?? '—');
-function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+function escapeHTML(s=''){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
