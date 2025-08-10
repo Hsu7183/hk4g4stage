@@ -1,5 +1,5 @@
-/* ===== 常數 ===== */
-var MULT=200, FEE=45, TAX=0.00004, SLIP=1.5;
+/* ===== 參數 ===== */
+var MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
 var ENTRY=['新買','新賣'];
 var EXIT_L=['平賣','強制平倉','平倉'];
 var EXIT_S=['平買','強制平倉','平倉'];
@@ -11,43 +11,34 @@ var kpiBlocks=document.getElementById('kpiBlocks');
 var errBox=document.getElementById('errBox');
 var chart=null;
 
-/* ===== 檔案 & 剪貼簿 ===== */
-document.getElementById('btn-clip').onclick=function(e){
-  navigator.clipboard.readText().then(function(txt){
-    if(!txt||!txt.trim()) return showErr('剪貼簿是空的');
-    run(txt); flash(e.target);
-  }).catch(function(err){ showErr('讀取剪貼簿失敗：'+err.message);});
-};
-document.getElementById('fileInput').onchange=function(e){
-  var f=e.target.files[0]; if(!f) return;
-  readFile(f).then(function(raw){ run(raw); flash(document.getElementById('pick')); })
-    .catch(function(err){ showErr('讀檔失敗：'+err.message);});
-};
+/* ===== 讀取剪貼簿 / 檔案 ===== */
+var btnClip=document.getElementById('btn-clip');
+if(btnClip){
+  btnClip.onclick=function(e){
+    navigator.clipboard.readText().then(function(txt){
+      if(!txt||!txt.trim()) return showErr('剪貼簿是空的');
+      run(txt); flash(e.target);
+    }).catch(function(err){ showErr('讀取剪貼簿失敗：'+err.message);});
+  };
+}
+var fileInput=document.getElementById('fileInput');
+if(fileInput){
+  fileInput.onchange=function(e){
+    var f=e.target.files[0]; if(!f) return;
+    readFile(f).then(function(raw){ run(raw); flash(document.getElementById('pick'));})
+      .catch(function(err){ showErr('讀檔失敗：'+err.message);});
+  };
+}
 function readFile(file){
-  function read(enc){return new Promise(function(ok,no){
-    var r=new FileReader(); r.onload=function(){ok(r.result)}; r.onerror=function(){no(r.error)};
-    enc? r.readAsText(file,enc): r.readAsText(file);
-  });}
-  return read('big5').catch(function(){ return read(); });
+  function read(enc){return new Promise(function(ok,no){var r=new FileReader();r.onload=function(){ok(r.result)};r.onerror=function(){no(r.error)};enc?r.readAsText(file,enc):r.readAsText(file);});}
+  return read('big5').catch(function(){return read();});
 }
 
 /* ===== 解析工具 ===== */
-var ACTION_MAP=new Map([
-  ['新買','新買'],['新賣','新賣'],
-  ['平買','平買'],['平賣','平賣'],
-  ['強制平倉','強制平倉'],['平倉','平倉']
-]);
-function normAct(s){
-  s=(s||'').trim().replace(/[（(].*?[)）]/g,'');
-  if(s.length>3) s=s.slice(0,3);
-  return ACTION_MAP.get(s)||s;
-}
+var ACTION_MAP=new Map([['新買','新買'],['新賣','新賣'],['平買','平買'],['平賣','平賣'],['強制平倉','強制平倉'],['平倉','平倉']]);
+function normAct(s){ s=(s||'').trim().replace(/[（(].*?[)）]/g,''); if(s.length>3)s=s.slice(0,3); return ACTION_MAP.get(s)||s; }
 function onlyDigits(x){ return (x||'').replace(/\D/g,''); }
-function looksLikeTS(tok){
-  // 只接受「20開頭」且 ≥12 位數（忽略小數點）
-  var d=onlyDigits(String(tok||'').split('.')[0]);
-  return d.startsWith('20') && d.length>=12;
-}
+function looksLikeTS(tok){ var d=onlyDigits(String(tok||'').split('.')[0]); return d.startsWith('20') && d.length>=12; }
 function parseTS(tok){
   var d=onlyDigits(String(tok||'').split('.')[0]);
   if(d.length>=14) return d.slice(0,14);
@@ -59,16 +50,11 @@ function parseLine(line){
   if(!line) return null;
   var parts=line.trim().split(/\s+/);
   if(parts.length<3) return null;
-
-  // 僅當第一欄長得像時間才當交易行（避免把參數行當成時間）
-  if(!looksLikeTS(parts[0])) return null;
-
+  if(!looksLikeTS(parts[0])) return null;         // 參數行直接跳過
   var ts=parseTS(parts[0]);
-  var price=parseFloat(String(parts[1]).replace(/,/g,''));
-  if(isNaN(price)) return null;
+  var price=parseFloat(String(parts[1]).replace(/,/g,'')); if(isNaN(price)) return null;
   var act=normAct(parts[2]);
-  var ok={'新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1};
-  if(!ok[act]) return null;
+  var ok={'新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1}; if(!ok[act]) return null;
   return {ts:ts, price:price, act:act};
 }
 
@@ -79,10 +65,9 @@ function run(raw){
     var rows=(raw||'').replace(/^\uFEFF/,'').trim().split(/\r?\n/).filter(Boolean);
     if(!rows.length) return showErr('空檔案');
 
-    // 若第一行不是交易（參數行），略過
-    if(!parseLine(rows[0])) rows.shift();
+    if(!parseLine(rows[0])) rows.shift();  // 第一行為參數 → 略過
 
-    var q=[], tr=[], tsArr=[], tot=[], lon=[], sho=[], sli=[];
+    var q=[],tr=[],tsArr=[],tot=[],lon=[],sho=[],sli=[];
     var cum=0,cumL=0,cumS=0,cumSlip=0;
 
     for(var i=0;i<rows.length;i++){
@@ -186,10 +171,9 @@ function renderTrades(list){
       '<td>'+fmt(t.gainSlip)+'</td><td>'+fmt(cs)+'</td>'+
       '</tr>');
   });
-  tbl.hidden=false;
 }
 
-/* ===== 圖表（總=黃、多=綠、空=紅、滑價=黑） ===== */
+/* ===== 圖表 (黃=總、綠=多、紅=空、黑=滑價) ===== */
 function drawChart(tsArr,T,L,S,P){
   if(chart) chart.destroy();
   function ym2Date(ym){return new Date(+ym.slice(0,4),+ym.slice(4,6)-1);}
@@ -201,12 +185,13 @@ function drawChart(tsArr,T,L,S,P){
   var X=tsArr.map(function(ts){var y=+ts.slice(0,4),m=+ts.slice(4,6),dd=+ts.slice(6,8),hh=+ts.slice(8,10)||0,mm=+ts.slice(10,12)||0;return mIdx[ts.slice(0,6)]+(dd-1+(hh+mm/60)/24)/dim(y,m);});
   function mk(d,c){return{data:d,stepped:true,borderColor:c,borderWidth:2,pointRadius:3};}
   chart=new Chart(cvs,{type:'line',data:{labels:X,datasets:[mk(T,'#f6b300'),mk(L,'#2e7d32'),mk(S,'#d32f2f'),mk(P,'#000')]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return' '+c.parsed.y.toLocaleString('zh-TW');}}}},scales:{x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},y:{ticks:{callback:function(v){return v.toLocaleString('zh-TW');}}}}});
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return' '+c.parsed.y.toLocaleString('zh-TW');}}}},
+    scales:{x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},y:{ticks:{callback:function(v){return v.toLocaleString('zh-TW');}}}}});
 }
 
 /* ===== 雜項 ===== */
 function fmt(n){ if(typeof n==='number'&&isFinite(n)) return n.toLocaleString('zh-TW',{maximumFractionDigits:0}); if(typeof n==='string') return n; return '—'; }
 function fmtTs(s){ var y=s.slice(0,4),m=s.slice(4,6),d=s.slice(6,8),hh=s.slice(8,10)||'00',mm=s.slice(10,12)||'00'; return y+'/'+m+'/'+d+' '+hh+':'+mm; }
-function flash(el){ el.classList.add('flash'); setTimeout(function(){el.classList.remove('flash');},600); }
-function showErr(m){ errBox.textContent=m; errBox.style.display='inline-block'; }
-function hideErr(){ errBox.style.display='none'; errBox.textContent=''; }
+function flash(el){ if(!el) return; el.classList.add('flash'); setTimeout(function(){el.classList.remove('flash');},600); }
+function showErr(m){ if(errBox){errBox.textContent=m; errBox.style.display='inline-block';} else {alert(m);} }
+function hideErr(){ if(errBox){errBox.style.display='none'; errBox.textContent='';} }
