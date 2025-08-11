@@ -8,7 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 </head>
 <body>
-  <header class="wrap">
+  <header>
     <h1>三劍客台指期策略分析（批量版）</h1>
     <div class="btn-group">
       <label class="btn primary">選擇多個檔案
@@ -18,58 +18,48 @@
     </div>
   </header>
 
-  <main class="wrap">
-    <section class="grid-2">
-      <div class="card">
-        <h2 class="sec-title">第一列收益曲線</h2>
-        <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+  <div class="grid2" style="max-width:1200px;margin:1rem auto;gap:1rem;">
+    <div class="card">
+      <h3>第一列收益曲線</h3>
+      <div class="chart-wrap" style="margin:0">
+        <canvas id="multiChart"></canvas>
       </div>
+    </div>
+    <div class="card">
+      <h3>第一列交易紀錄</h3>
+      <table id="topTrades">
+        <thead>
+          <tr>
+            <th>筆數</th><th>進場時間</th><th>進場價</th><th>出場時間</th><th>出場價</th>
+            <th>方向</th><th>點數</th><th>手續費</th><th>期交稅</th>
+            <th>獲利</th><th>累積獲利</th><th>滑價獲利</th><th>累積滑價獲利</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="13">尚未載入</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 
-      <div class="card">
-        <h2 class="sec-title">第一列交易紀錄</h2>
-        <div class="table-scroll">
-          <table id="tradeTbl">
-            <thead>
-              <tr>
-                <th>筆數</th><th>進場時間</th><th>進場價</th><th>出場時間</th><th>出場價</th>
-                <th>方向</th><th>點數</th><th>手續費</th><th>期交稅</th>
-                <th>獲利</th><th>累積獲利</th><th>滑價獲利</th><th>累積滑價獲利</th>
-              </tr>
-            </thead>
-            <tbody><tr><td colspan="13" class="muted">尚未載入</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
+  <div class="card" style="max-width:1200px;margin:1rem auto;">
+    <h3>彙總結果</h3>
+    <div style="font-size:.85rem;color:#666;margin-bottom:.5rem">
+      TXT 第一行若為參數則自動識別；載入後，點擊上方表頭可排序，排序完成會切換第一列視圖。
+    </div>
+    <table id="summary">
+      <thead>
+        <tr>
+          <th data-k="name">檔名</th>
+          <th data-k="params">參數</th>
+          <th data-k="n">全部-交易數</th>
+          <th data-k="p">全部-累積獲利</th>
+          <th data-k="l">多單-累積獲利</th>
+          <th data-k="s">空單-累積獲利</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
-    <section class="card">
-      <h2 class="sec-title">彙總結果</h2>
-      <div class="hint">TXT 第一行若為參數則會自動識別；載入後，點擊上方表頭可排序，排序完成後會切換第一列繪圖。</div>
-      <div class="table-scroll">
-        <table id="sumTbl">
-          <thead id="sumHead">
-            <tr>
-              <th data-k="name">檔案名</th>
-              <th data-k="params">參數</th>
-              <th data-k="n">全部-交易數</th>
-              <th data-k="winr">全部-勝率</th>
-              <th data-k="pips">全部-總點數</th>
-              <th data-k="pnl">全部-累積獲利</th>
-              <th data-k="slip">全部-滑價累計</th>
-              <th data-k="dd">全部-區間最大回撤</th>
-            </tr>
-          </thead>
-          <tbody id="sumBody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2 class="sec-title">第一列數值彙整（全部／多單／空單）</h2>
-      <div id="stats"></div>
-    </section>
-  </main>
-
-  <script src="app-multi.js"></script>
+  <script type="module" src="app-multi.js"></script>
 </body>
 </html>
