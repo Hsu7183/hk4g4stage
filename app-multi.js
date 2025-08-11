@@ -1,228 +1,271 @@
-/* ===== 常數與工具 ===== */
-var MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
-var ENTRY=['新買','新賣'],EXIT_L=['平賣','強制平倉','平倉'],EXIT_S=['平買','強制平倉','平倉'];
+// ===== 常數與共用 =====
+const MULT = 200, FEE = 45, TAX = 0.00004, SLIP = 1.5;
+const ENTRY = ['新買', '新賣'];
+const EXIT_L = ['平賣', '強制平倉'];
+const EXIT_S = ['平買', '強制平倉'];
 
-var ACTION_MAP=new Map([['新買','新買'],['新賣','新賣'],['平買','平買'],['平賣','平賣'],['強制平倉','強制平倉'],['平倉','平倉']]);
-function normAct(s){s=(s||'').trim().replace(/[（(].*?[)）]/g,'');if(s.length>3)s=s.slice(0,3);return ACTION_MAP.get(s)||s;}
-function onlyDigits(x){return (x||'').replace(/\D/g,'');}
-function looksLikeTS(tok){var d=onlyDigits(String(tok||'').split('.')[0]);return d.startsWith('20')&&d.length>=12;}
-function parseTS(tok){var d=onlyDigits(String(tok||'').split('.')[0]);if(d.length>=14)return d.slice(0,14);if(d.length===12)return d+'00';if(d.length===8)return d+'0000';return'';}
-function parseLine(line){
-  if(!line) return null;
-  var parts=line.trim().split(/\s+/); if(parts.length<3) return null;
-  if(!looksLikeTS(parts[0])) return null;
-  var ts=parseTS(parts[0]);
-  var price=parseFloat(String(parts[1]).replace(/,/g,'')); if(isNaN(price)) return null;
-  var act=normAct(parts[2]); var ok={'新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1}; if(!ok[act])return null;
-  return {ts:ts,price:price,act:act};
+const cvs = document.getElementById('equityChart');
+const tradeTbl = document.getElementById('tradeTbl');
+const sumHead = document.getElementById('sumHead');
+const sumBody = document.getElementById('sumBody');
+let chart;
+
+document.getElementById('multiInput').onchange = async (e) => {
+  const files = Array.from(e.target.files||[]);
+  if (!files.length) return;
+  const results = [];
+  for (const f of files) {
+    const raw = await readAsText(f);
+    const parsed = parseText(raw);
+    const kpi = buildKPI(parsed.trades, parsed.seqs);
+    results.push({
+      name: shortName(f.name),
+      params: parsed.paramsText,
+      trades: parsed.trades,
+      tsArr: parsed.tsArr,
+      seqs: parsed.seqs,
+      view: {
+        n: kpi.all['交易數'],
+        winr: kpi.all['勝率Num'],   // for sort
+        pips: kpi.all['總點數'],
+        pnl: kpi.all['累積獲利'],
+        slip: kpi.all['滑價累計獲利'],
+        dd: kpi.all['區間最大回撤']
+      }
+    });
+  }
+  renderSummary(results);
+  // 預設以當前排序第一列顯示
+  if (results.length) showDetail(results[0]);
+};
+document.getElementById('btn-clear').onclick = ()=>{
+  sumBody.innerHTML='';
+  tradeTbl.querySelector('tbody').innerHTML='<tr><td colspan="13" class="muted">尚未載入</td></tr>';
+  if (chart) chart.destroy();
+};
+
+// 表頭點擊排序
+sumHead.onclick = (e)=>{
+  const th = e.target.closest('th'); if (!th) return;
+  const key = th.dataset.k; if (!key) return;
+  const rows = Array.from(sumBody.querySelectorAll('tr'));
+  const asc = !(th.classList.contains('asc'));
+  sumHead.querySelectorAll('th').forEach(t=>t.classList.remove('asc','desc'));
+  th.classList.add(asc?'asc':'desc');
+
+  rows.sort((a,b)=>{
+    const va = a.dataset[key], vb=b.dataset[key];
+    const numa = +va; const numb=+vb;
+    if (!Number.isNaN(numa) && !Number.isNaN(numb))
+      return asc ? (numa-numb) : (numb-numa);
+    return asc ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+  sumBody.innerHTML=''; rows.forEach(r=>sumBody.appendChild(r));
+  // 重新顯示第一列為圖與交易
+  const first = sumBody.querySelector('tr');
+  if (first) first.click();
+};
+
+// ===== 解析/計算 =====
+function parseText(raw){
+  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+  let startIdx=0, paramsText='';
+  if (lines.length && /^[\d.\s]+$/.test(lines[0])) {
+    // 參數列：取整數後用 / 連接
+    const ints = lines[0].trim().split(/\s+/).map(x=>Math.trunc(+x));
+    paramsText = ints.join(' / ');
+    startIdx = 1;
+  }
+
+  const q=[], trades=[], tsArr=[], T=[],L=[],S=[],P=[];
+  let cum=0,cumL=0,cumS=0,cumSlip=0;
+
+  for (let i=startIdx;i<lines.length;i++){
+    const parts = lines[i].trim().split(/\s+/);
+    if (parts.length<3) continue;
+    const tsRaw = normalizeTS(parts[0]);
+    const price = +parts[1];
+    const act = parts[2];
+
+    if (ENTRY.includes(act)){ q.push({side:act==='新買'?'L':'S', pIn:price, tsIn:tsRaw}); continue; }
+    const qi = q.findIndex(o=>(o.side==='L'&&EXIT_L.includes(act)) || (o.side==='S'&&EXIT_S.includes(act)));
+    if (qi===-1) continue;
+    const pos = q.splice(qi,1)[0];
+
+    const pts = pos.side==='L'? price-pos.pIn : pos.pIn-price;
+    const fee = FEE*2, tax = Math.round(price*MULT*TAX);
+    const gain = pts*MULT - fee - tax;
+    const gainSlip = gain - SLIP*MULT;
+
+    cum+=gain; cumSlip+=gainSlip; if (pos.side==='L') cumL+=gain; else cumS+=gain;
+    trades.push({pos, tsOut:tsRaw, priceOut:price, pts, gain, gainSlip});
+    tsArr.push(tsRaw); T.push(cum); L.push(cumL); S.push(cumS); P.push(cumSlip);
+  }
+  return { paramsText, trades, tsArr, seqs:{tot:T,lon:L,sho:S,sli:P} };
 }
-function fmt(n){if(typeof n==='number'&&isFinite(n))return n.toLocaleString('zh-TW',{maximumFractionDigits:0});if(typeof n==='string')return n;return'—';}
-function fmtTs(s){var y=s.slice(0,4),m=s.slice(4,6),d=s.slice(6,8),hh=s.slice(8,10)||'00',mm=s.slice(10,12)||'00';return y+'/'+m+'/'+d+' '+hh+':'+mm;}
-function paramsDisplay(s){if(!s)return'—';var t=s.trim().split(/\s+/).filter(Boolean);var ok=t.length>0&&t.every(function(x){return/^[-+]?\d+(?:\.\d+)?$/.test(x)});return ok?t.map(function(x){return String(Math.trunc(parseFloat(x)));}).join(' / '):s;}
 
-/* ===== DOM ===== */
-var filesInput=document.getElementById('filesInput');
-var btnClear=document.getElementById('btn-clear');
-var tbl=document.getElementById('tblBatch'), thead=tbl.querySelector('thead'), tbody=tbl.querySelector('tbody');
-var cvs=document.getElementById('equityChart'), chart=null;
-var tradesBody=document.getElementById('tradesBody'), kpiBlocks=document.getElementById('kpiBlocks');
-var paramBar=document.getElementById('paramBar'), pName=document.getElementById('pName'), pParams=document.getElementById('pParams'), loadStat=document.getElementById('loadStat');
+function buildKPI(tr, seq){
+  const sum=a=>a.reduce((x,y)=>x+y,0);
+  const byDay=list=>{const m={}; list.forEach(t=>{const d=t.tsOut.slice(0,8); m[d]=(m[d]||0)+t.gain;}); return Object.values(m);};
+  const drawUp=s=>{let mn=s[0],up=0; s.forEach(v=>{mn=Math.min(mn,v); up=Math.max(up,v-mn);}); return up;};
+  const drawDn=s=>{let pk=s[0],dn=0; s.forEach(v=>{pk=Math.max(pk,v); dn=Math.min(dn,v-pk);}); return dn;};
+  const longs=tr.filter(t=>t.pos.side==='L');
+  const shorts=tr.filter(t=>t.pos.side==='S');
 
-var rowsData=[];
-
-/* ===== File 讀取 ===== */
-function readFile(file){
-  function read(enc){return new Promise(function(ok,no){var r=new FileReader();r.onload=function(){ok(r.result)};r.onerror=function(){no(r.error)};enc?r.readAsText(file,enc):r.readAsText(file);});}
-  return read('big5').catch(function(){return read();});
+  const make=(list,cum)=>{const win=list.filter(t=>t.gain>0), loss=list.filter(t=>t.gain<0);
+    const _winr = win.length/(list.length||1);
+    return {
+      '交易數':list.length,
+      '勝率':(_winr*100).toFixed(1)+'%',
+      '勝率Num':_winr,
+      '總點數':sum(list.map(t=>t.pts)),
+      '累積獲利':sum(list.map(t=>t.gain)),
+      '滑價累計獲利':sum(list.map(t=>t.gainSlip)),
+      '單日最大獲利':Math.max(...byDay(list),0),
+      '單日最大虧損':Math.min(...byDay(list),0),
+      '區間最大獲利':drawUp(cum),
+      '區間最大回撤':drawDn(cum)
+    };};
+  return { all:make(tr,seq.tot), L:make(longs,seq.lon), S:make(shorts,seq.sho) };
 }
 
-/* ===== 事件 ===== */
-if(filesInput){
-  filesInput.addEventListener('change',function(e){
-    var files=[].slice.call(e.target.files||[]); if(!files.length) return;
-    buildHeader(); rowsData=[]; tbody.innerHTML=''; updateStat(0,files.length,0);
-    var failed=0, firstShown=false;
+// ===== 呈現 =====
+function renderSummary(items){
+  sumBody.innerHTML='';
+  items.forEach((it,idx)=>{
+    const tr=document.createElement('tr');
+    tr.dataset.name = it.name;
+    tr.dataset.params = it.params;
+    tr.dataset.n = it.view.n;
+    tr.dataset.winr = it.view.winr;
+    tr.dataset.pips = it.view.pips;
+    tr.dataset.pnl = it.view.pnl;
+    tr.dataset.slip = it.view.slip;
+    tr.dataset.dd = it.view.dd;
 
-    (function loop(i){
-      if(i>=files.length) return;
-      var f=files[i];
-      readFile(f).then(function(raw){
-        var res=analyse(raw,{needFull:!firstShown,filename:f.name});
-        rowsData.push({
-          filename:f.name, shortName:res.shortName, paramsText:res.paramsText, fileRef:f,
-          kpi:res.kpi, sortCache:sortCache(res.kpi),
-          equitySeq:res.eq, tsSeq:res.ts, trades:res.trades
-        });
-        appendRow(res.shortName,res.paramsText,res.kpi);
-
-        if(!firstShown && res.ts && res.ts.length){
-          drawChart(res.ts,res.eq.tot,res.eq.lon,res.eq.sho,res.eq.sli);
-          renderTrades(res.trades); renderKPI(res.kpi);
-          showParam(res.shortName,res.paramsText);
-          firstShown=true;
-        }
-      }).catch(function(err){ console.error(err); failed++; })
-        .finally(function(){ updateStat(i+1,files.length,failed); loop(i+1);});
-    })(0);
+    tr.innerHTML = `
+      <td class="mono">${escapeHtml(it.name)}</td>
+      <td class="mono">${escapeHtml(it.params||'—')}</td>
+      <td class="num">${fmt(it.view.n)}</td>
+      <td class="num">${(it.view.winr*100).toFixed(1)}%</td>
+      <td class="num">${fmt(it.view.pips)}</td>
+      <td class="num">${fmt(it.view.pnl)}</td>
+      <td class="num">${fmt(it.view.slip)}</td>
+      <td class="num">${fmt(it.view.dd)}</td>
+    `;
+    tr.onclick=()=>showDetail(it);
+    if (idx%2) tr.classList.add('even');
+    sumBody.appendChild(tr);
   });
 }
 
-if(btnClear){
-  btnClear.onclick=function(){
-    filesInput.value=''; thead.innerHTML=''; tbody.innerHTML='';
-    rowsData=[]; if(chart) chart.destroy(); tradesBody.innerHTML='<tr><td colspan="13" style="color:#777">尚未載入</td></tr>';
-    kpiBlocks.innerHTML=''; paramBar.hidden=true; updateStat(0,0,0);
+function showDetail(it){
+  // 交易表
+  const body = tradeTbl.querySelector('tbody'); body.innerHTML='';
+  const list = it.trades;
+  list.forEach((t,i)=>{
+    body.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td rowspan="2">${i+1}</td>
+        <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td>
+        <td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td>
+        <td>${t.pos.side==='L'?'多':'空'}</td>
+        <td>${fmt(t.pts)}</td><td>${fmt(FEE*2)}</td><td>${fmt(Math.round(t.priceOut*MULT*TAX))}</td>
+        <td>${fmt(t.gain)}</td><td>${fmt(sumUpTo(list,i,'gain'))}</td>
+        <td>${fmt(t.gainSlip)}</td><td>${fmt(sumUpTo(list,i,'gainSlip'))}</td>
+      </tr>
+    `);
+  });
+
+  // KPI 區
+  const kpi = buildKPI(it.trades, it.seqs);
+  renderStatsBlock(kpi);
+
+  // 圖
+  drawChart(it.tsArr, it.seqs.tot, it.seqs.lon, it.seqs.sho, it.seqs.sli);
+}
+
+function renderStatsBlock(kpi){
+  const statBox = document.getElementById('stats');
+  const block = (obj,title)=>{
+    let html=`<section><h3>${title}</h3><div class="stat-grid">`;
+    Object.entries(obj).forEach(([k,v])=>{
+      if (k==='勝率Num') return;
+      html+=`<div class="stat-item"><span class="stat-key">${k}</span>：<span class="stat-val">${fmt(v)}</span></div>`;
+    });
+    html+='</div></section>';
+    return html;
   };
+  statBox.innerHTML = block(kpi.all,'全部') + block(kpi.L,'多單') + block(kpi.S,'空單');
 }
 
-/* ===== 分析主程式（單檔） ===== */
-function analyse(raw,opt){
-  opt=opt||{};
-  var rows=(raw||'').replace(/^\uFEFF/,'').trim().split(/\r?\n/).filter(Boolean);
-  if(!rows.length) throw new Error('空檔案');
+function drawChart(tsArr, T,L,S,P){
+  if (chart) chart.destroy();
+  if (!tsArr.length){ chart=new Chart(cvs,{type:'line',data:{labels:[],datasets:[]}}); return; }
 
-  var paramLine='';
-  if(!parseLine(rows[0])) paramLine=rows.shift();
+  const ym2Date=ym=>new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
+  const addM=(d,n)=>new Date(d.getFullYear(), d.getMonth()+n);
+  const start=addM(ym2Date(tsArr[0].slice(0,6)),-1);
+  const months=[]; for(let d=start; months.length<26; d=addM(d,1))
+    months.push(`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`);
+  const mIdx={}; months.forEach((m,i)=>mIdx[m.replace('/','')]=i);
 
-  var q=[],tr=[],ts=[],tot=[],lon=[],sho=[],sli=[];
-  var cum=0,cumL=0,cumS=0,cumSlip=0;
+  const daysInMonth=(y,m)=>new Date(y,m,0).getDate();
+  const X = tsArr.map(ts=>{
+    const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8), hh=+ts.slice(8,10), mm=+ts.slice(10,12);
+    return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24)/daysInMonth(y,m);
+  });
 
-  for(var i=0;i<rows.length;i++){
-    var t=parseLine(rows[i]); if(!t) continue;
+  const maxI=T.indexOf(Math.max(...T));
+  const minI=T.indexOf(Math.min(...T));
 
-    if(ENTRY.indexOf(t.act)>=0){ q.push({side:t.act==='新買'?'L':'S',pIn:t.price,tsIn:t.ts}); continue; }
+  const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+    ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent'; ctx.fillRect(left+i*w,top,w,bottom-top);}); ctx.restore();}};
+  const mmLabel={id:'mmLabel',afterDraw(c){const{ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
+    ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
+    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));ctx.restore();}};
 
-    var qi=-1; for(var j=0;j<q.length;j++){var o=q[j]; if((o.side==='L'&&EXIT_L.indexOf(t.act)>=0)||(o.side==='S'&&EXIT_S.indexOf(t.act)>=0)){qi=j;break;}}
-    if(qi===-1) continue;
+  const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:3,pointBackgroundColor:col,pointBorderColor:col});
+  const mkLast=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:5,pointBackgroundColor:col,pointBorderColor:col,
+    datalabels:{display:true,anchor:'center',align:'right',offset:8,formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
+  const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:5,pointBackgroundColor:col,pointBorderColor:col,
+    datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',offset:8,formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
 
-    var pos=q.splice(qi,1)[0];
-    var pts= pos.side==='L'?(t.price-pos.pIn):(pos.pIn-t.price);
-    var fee=FEE*2, tax=Math.round(t.price*MULT*TAX);
-    var gain=pts*MULT - fee - tax, gainSlip=gain - SLIP*MULT;
-
-    cum+=gain; cumSlip+=gainSlip; if(pos.side==='L') cumL+=gain; else cumS+=gain;
-    tr.push({pos:pos,tsOut:t.ts,priceOut:t.price,pts:pts,gain:gain,gainSlip:gainSlip,fee:fee,tax:tax});
-
-    if(opt.needFull){ ts.push(t.ts); tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip); }
-  }
-
-  var kpi=buildKPI(tr,{tot:tot,lon:lon,sho:sho,sli:sli});
-  var pf=parseName(opt.filename||''); var params=paramLine?paramsDisplay(paramLine):pf.params;
-  return {kpi:kpi, eq:opt.needFull?{tot:tot,lon:lon,sho:sho,sli:sli}:null, ts:opt.needFull?ts:null, trades:opt.needFull?tr:null, shortName:pf.short, paramsText:params};
-}
-
-/* ===== KPI、排序、呈現 ===== */
-function buildKPI(tr,seq){
-  function sum(a){return a.reduce(function(x,y){return x+y;},0);}
-  function pct(x){return (x*100).toFixed(1)+'%';}
-  function byDay(list){var m={};list.forEach(function(t){var d=(t.tsOut||'').slice(0,8);m[d]=(m[d]||0)+(t.gain||0)});return Object.values(m);}
-  function up(s){if(!s.length)return 0;var m=s[0],u=0;s.forEach(function(v){if(v<m)m=v;if(v-m>u)u=v-m});return u;}
-  function dn(s){if(!s.length)return 0;var p=s[0],d=0;s.forEach(function(v){if(v>p)p=v;if(v-p<d)d=v-p});return d;}
-  function streak(list){var cw=0,cl=0,mw=0,ml=0;list.forEach(function(t){if(t.gain>0){cw++;cl=0;mw=Math.max(mw,cw)}else if(t.gain<0){cl++;cw=0;ml=Math.max(ml,cl)}});return{mw:mw,ml:ml};}
-  var L=tr.filter(function(t){return t.pos&&t.pos.side==='L';});
-  var S=tr.filter(function(t){return t.pos&&t.pos.side==='S';});
-  function make(list,wrap){
-    if(!list.length)return{n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',exp:0,maxW:0,maxL:0};
-    var win=list.filter(function(t){return t.gain>0;}),loss=list.filter(function(t){return t.gain<0;});
-    var winAmt=sum(win.map(function(t){return t.gain;})),lossAmt=-sum(loss.map(function(t){return t.gain;}));
-    var pf=lossAmt===0?(winAmt>0?'∞':'—'):(winAmt/lossAmt).toFixed(2);
-    var avgW=win.length?winAmt/win.length:0, avgL=loss.length?-(lossAmt/loss.length):0, rr=avgL===0?'—':Math.abs(avgW/avgL).toFixed(2);
-    var st=streak(list);
-    return{ n:list.length,winRate:pct(win.length/list.length),lossRate:pct(loss.length/list.length),
-      posPts:sum(win.map(function(t){return t.pts;})),negPts:sum(loss.map(function(t){return t.pts;})),sumPts:sum(list.map(function(t){return t.pts;})),
-      sumGain:sum(list.map(function(t){return t.gain;})),sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
-      maxDay:Math.max.apply(null,byDay(list)),minDay:Math.min.apply(null,byDay(list)),
-      maxRunUp:up(wrap.tot||[]),maxDrawdown:dn(wrap.tot||[]),
-      pf:pf,avgW:avgW,avgL:avgL,rr:rr,exp:(winAmt-lossAmt)/list.length,maxW:st.mw,maxL:st.ml };
-  }
-  return {'全部':make(tr,seq),'多單':make(L,{tot:seq.lon}),'空單':make(S,{tot:seq.sho})};
-}
-var KPI_ORDER=[['交易數','n'],['勝率','winRate'],['敗率','lossRate'],['正點數','posPts'],['負點數','negPts'],['總點數','sumPts'],['累積獲利','sumGain'],['滑價累計獲利','sumGainSlip'],['單日最大獲利','maxDay'],['單日最大虧損','minDay'],['區間最大獲利','maxRunUp'],['區間最大回撤','maxDrawdown'],['Profit Factor','pf'],['平均獲利','avgW'],['平均虧損','avgL'],['盈虧比','rr'],['期望值(每筆)','exp'],['最大連勝','maxW'],['最大連敗','maxL']];
-var GROUPS=['全部','多單','空單'];
-
-function buildHeader(){
-  var cells=['<th class="sortable nowrap" data-key="__f">短檔名</th>','<th class="sortable nowrap" data-key="__p">參數</th>'];
-  GROUPS.forEach(function(g){ KPI_ORDER.forEach(function(p){ cells.push('<th class="sortable nowrap" data-key="'+g+'.'+p[1]+'">'+g+'-'+p[0]+'</th>');});});
-  thead.innerHTML='<tr>'+cells.join('')+'</tr>';
-  var curKey=null,curDir='asc',ths=thead.querySelectorAll('th.sortable');
-  [].forEach.call(ths,function(th){
-    th.addEventListener('click',function(){
-      var key=th.getAttribute('data-key'); curDir=(curKey===key?(curDir==='asc'?'desc':'asc'):'asc'); curKey=key;
-      [].forEach.call(ths,function(h){h.classList.remove('asc','desc')}); th.classList.add(curDir);
-      sortRows(curKey,curDir); redrawTop();
-    });
+  chart = new Chart(cvs,{
+    type:'line',
+    data:{labels:X,
+      datasets:[
+        mkLine(T,'#fbc02d'), mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121'),
+        mkLast(T,'#fbc02d'), mkLast(L,'#d32f2f'), mkLast(S,'#2e7d32'), mkLast(P,'#212121'),
+        mkMark(T,maxI,'#d32f2f'), mkMark(T,minI,'#2e7d32')
+      ]},
+    options:{responsive:true, maintainAspectRatio:false,
+      layout:{padding:{bottom:42,right:60}},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}}, datalabels:{display:false}},
+      scales:{x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}}, y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}}}
+    },
+    plugins:[stripe,mmLabel,ChartDataLabels]
   });
 }
-function sortCache(kpi){
-  var flat={};
-  GROUPS.forEach(function(g){
-    var obj=kpi[g]||{};
-    KPI_ORDER.forEach(function(p){
-      var v=obj[p[1]];
-      if(typeof v==='number') flat[g+'.'+p[1]]=v;
-      else if(typeof v==='string'){
-        if(v.slice(-1)==='%') flat[g+'.'+p[1]]=parseFloat(v);
-        else if(v==='—') flat[g+'.'+p[1]]=-Infinity;
-        else if(v==='∞') flat[g+'.'+p[1]]=Number.POSITIVE_INFINITY;
-        else flat[g+'.'+p[1]]=parseFloat(v.replace(/,/g,''))||-Infinity;
-      }else flat[g+'.'+p[1]]=-Infinity;
-    });
-  });
-  return flat;
-}
-var rowsDataCache=null;
-function sortRows(key,dir){
-  var f=dir==='asc'?1:-1;
-  rowsData.sort(function(a,b){
-    if(key==='__f') return a.shortName.localeCompare(b.shortName)*f;
-    if(key==='__p') return a.paramsText.localeCompare(b.paramsText)*f;
-    var av=(a.sortCache[key]!==undefined)?a.sortCache[key]:-Infinity;
-    var bv=(b.sortCache[key]!==undefined)?b.sortCache[key]:-Infinity;
-    var d=(av-bv)*f; return d||a.shortName.localeCompare(b.shortName)*f;
-  });
-  tbody.innerHTML=''; rowsData.forEach(function(r){ appendRow(r.shortName,r.paramsText,r.kpi); });
-}
-function appendRow(short,params,kpi){
-  var tds=['<td class="nowrap">'+short+'</td>','<td class="nowrap">'+params+'</td>'];
-  GROUPS.forEach(function(g){var obj=kpi[g]||{}; KPI_ORDER.forEach(function(p){ tds.push('<td>'+fmt(obj[p[1]])+'</td>');});});
-  tbody.insertAdjacentHTML('beforeend','<tr>'+tds.join('')+'</tr>');
-}
 
-function redrawTop(){
-  var first=null; for(var i=0;i<rowsData.length;i++){ if(rowsData[i].tsSeq){ first=rowsData[i]; break;} }
-  if(!first){ if(chart) chart.destroy(); tradesBody.innerHTML='<tr><td colspan="13" style="color:#777">沒有可用資料</td></tr>'; kpiBlocks.innerHTML=''; paramBar.hidden=true; return; }
-  drawChart(first.tsSeq,first.equitySeq.tot,first.equitySeq.lon,first.equitySeq.sho,first.equitySeq.sli);
-  renderTrades(first.trades); renderKPI(first.kpi); showParam(first.shortName,first.paramsText);
-}
-
-/* ===== 畫圖 / 表格呈現 ===== */
-function drawChart(tsArr,T,L,S,P){
-  if(chart) chart.destroy();
-  function ym2Date(ym){return new Date(+ym.slice(0,4),+ym.slice(4,6)-1);} function addM(d,n){return new Date(d.getFullYear(),d.getMonth()+n);}
-  var start=addM(ym2Date(tsArr[0].slice(0,6)),-1),months=[],d=start; while(months.length<26){months.push(d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2));d=addM(d,1);}
-  var mIdx={}; months.forEach(function(m,i){mIdx[m.replace('/','')]=i;}); function dim(y,m){return new Date(y,m,0).getDate();}
-  var X=tsArr.map(function(ts){var y=+ts.slice(0,4),m=+ts.slice(4,6),dd=+ts.slice(6,8),hh=+ts.slice(8,10)||0,mm=+ts.slice(10,12)||0;return mIdx[ts.slice(0,6)]+(dd-1+(hh+mm/60)/24)/dim(y,m);});
-  function mk(d,c){return{data:d,stepped:true,borderColor:c,borderWidth:2,pointRadius:3};}
-  chart=new Chart(cvs,{type:'line',data:{labels:X,datasets:[mk(T,'#f6b300'),mk(L,'#2e7d32'),mk(S,'#d32f2f'),mk(P,'#000')]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return' '+c.parsed.y.toLocaleString('zh-TW');}}}},
-    scales:{x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},y:{ticks:{callback:function(v){return v.toLocaleString('zh-TW');}}}}});
-}
-function renderTrades(list){
-  if(!list||!list.length){ tradesBody.innerHTML='<tr><td colspan="13" style="color:#777">此檔沒有成功配對的交易</td></tr>'; return; }
-  var cg=0,cs=0,html=[];
-  list.forEach(function(t,i){
-    cg+=t.gain; cs+=t.gainSlip; var dir=t.pos.side==='L'?'多':'空';
-    html.push('<tr><td>'+(i+1)+'</td><td>'+fmtTs(t.pos.tsIn)+'</td><td>'+fmt(t.pos.pIn)+'</td><td>'+fmtTs(t.tsOut)+'</td><td>'+fmt(t.priceOut)+'</td><td>'+dir+'</td><td>'+fmt(t.pts)+'</td><td>'+fmt(t.fee)+'</td><td>'+fmt(t.tax)+'</td><td>'+fmt(t.gain)+'</td><td>'+fmt(cg)+'</td><td>'+fmt(t.gainSlip)+'</td><td>'+fmt(cs)+'</td></tr>');
+// ===== 工具 =====
+function readAsText(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result); r.onerror=()=>rej(r.error);
+    r.readAsText(file);
   });
-  tradesBody.innerHTML=html.join('');
 }
-function renderKPI(kpi){
-  var html=''; ['全部','多單','空單'].forEach(function(g){
-    html+='<div class="kpi-block"><div class="kpi-title">'+g+'</div><div class="kpi-line">';
-    KPI_ORDER.forEach(function(p){ var v=kpi[g][p[1]]; html+='<span class="kpi-item"><span class="kpi-key">'+p[0]+'</span>：<span class="kpi-val">'+fmt(v)+'</span></span>'; });
-    html+='</div></div>';
-  }); kpiBlocks.innerHTML=html;
+function normalizeTS(s){
+  const digits = (s.split('.')[0]||'').trim();
+  return digits.length>=12 ? digits.slice(0,12) : digits.padEnd(12,'0');
 }
-function showParam(name,params){ pName.textContent=name||'—'; pParams.textContent=params||'—'; paramBar.hidden=false; }
-function parseName(name){ name=name||''; var base=name.replace(/\.[^.]+$/,''),parts=base.split('_').filter(Boolean); var short=parts.slice(0,3).join('_')||base; var params=parts.slice(3).join(' ／ ')||'—'; return {short:short,params:params}; }
-function updateStat(done,total,failed){ if(!loadStat) return; if(!total){loadStat.style.display='none'; loadStat.textContent='';return;} loadStat.style.display='inline-block'; loadStat.textContent='載入：'+done+'/'+total+'，成功：'+(done-failed)+'，失敗：'+failed; }
+function shortName(n){
+  // 僅保留開頭時間戳與策略名的前段，方便核對
+  const m = n.match(/^\d{8}[_-]?\d{6}|^\d{8}_\d{6}/);
+  return m ? m[0] : n;
+}
+const fmt = v => typeof v==='number' ? v.toLocaleString('zh-TW',{maximumFractionDigits:2}) : v;
+const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+function sumUpTo(arr, idx, key){return arr.slice(0, idx + 1).reduce((a,b)=>a + b[key], 0);}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));}
