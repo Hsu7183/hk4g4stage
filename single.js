@@ -1,197 +1,208 @@
-/* ===== 參數 ===== */
-var MULT=200,FEE=45,TAX=0.00004,SLIP=1.5;
-var ENTRY=['新買','新賣'];
-var EXIT_L=['平賣','強制平倉','平倉'];
-var EXIT_S=['平買','強制平倉','平倉'];
+// ===== 常數 =====
+const MULT = 200, FEE = 45, TAX = 0.00004, SLIP = 1.5;
+const ENTRY = ['新買', '新賣'];
+const EXIT_L = ['平賣', '強制平倉'];
+const EXIT_S = ['平買', '強制平倉'];
 
-/* ===== DOM ===== */
-var cvs=document.getElementById('equityChart');
-var tbl=document.getElementById('tbl');
-var kpiBlocks=document.getElementById('kpiBlocks');
-var errBox=document.getElementById('errBox');
-var chart=null;
+const cvs = document.getElementById('equityChart');
+const tbl = document.getElementById('tbl');
+let chart;
 
-/* ===== 讀取剪貼簿 / 檔案 ===== */
-var btnClip=document.getElementById('btn-clip');
-if(btnClip){
-  btnClip.onclick=function(e){
-    navigator.clipboard.readText().then(function(txt){
-      if(!txt||!txt.trim()) return showErr('剪貼簿是空的');
-      run(txt); flash(e.target);
-    }).catch(function(err){ showErr('讀取剪貼簿失敗：'+err.message);});
-  };
-}
-var fileInput=document.getElementById('fileInput');
-if(fileInput){
-  fileInput.onchange=function(e){
-    var f=e.target.files[0]; if(!f) return;
-    readFile(f).then(function(raw){ run(raw); flash(document.getElementById('pick'));})
-      .catch(function(err){ showErr('讀檔失敗：'+err.message);});
-  };
-}
-function readFile(file){
-  function read(enc){return new Promise(function(ok,no){var r=new FileReader();r.onload=function(){ok(r.result)};r.onerror=function(){no(r.error)};enc?r.readAsText(file,enc):r.readAsText(file);});}
-  return read('big5').catch(function(){return read();});
+// ===== 事件 =====
+document.getElementById('btn-clip').onclick = async (e) => {
+  try { const t = await navigator.clipboard.readText(); runAnalyse(t); flash(e.target); }
+  catch (err) { alert('讀取剪貼簿失敗：' + err.message); }
+};
+document.getElementById('fileInput').onchange = async (e) => {
+  const f = e.target.files?.[0]; if (!f) return;
+  const raw = await readAsText(f);
+  runAnalyse(raw);
+  flash(e.target.parentElement);
+};
+
+// ===== 流程 =====
+function runAnalyse(raw) {
+  const parsed = parseText(raw);
+  if (parsed.trades.length === 0) { alert('沒有成功配對的交易'); return; }
+
+  renderTable(parsed.trades);
+  renderStats(parsed.trades, parsed.seqs);
+  drawChart(parsed.tsArr, parsed.seqs.tot, parsed.seqs.lon, parsed.seqs.sho, parsed.seqs.sli);
 }
 
-/* ===== 解析工具 ===== */
-var ACTION_MAP=new Map([['新買','新買'],['新賣','新賣'],['平買','平買'],['平賣','平賣'],['強制平倉','強制平倉'],['平倉','平倉']]);
-function normAct(s){ s=(s||'').trim().replace(/[（(].*?[)）]/g,''); if(s.length>3)s=s.slice(0,3); return ACTION_MAP.get(s)||s; }
-function onlyDigits(x){ return (x||'').replace(/\D/g,''); }
-function looksLikeTS(tok){ var d=onlyDigits(String(tok||'').split('.')[0]); return d.startsWith('20') && d.length>=12; }
-function parseTS(tok){
-  var d=onlyDigits(String(tok||'').split('.')[0]);
-  if(d.length>=14) return d.slice(0,14);
-  if(d.length===12) return d+'00';
-  if(d.length===8)  return d+'0000';
-  return '';
-}
-function parseLine(line){
-  if(!line) return null;
-  var parts=line.trim().split(/\s+/);
-  if(parts.length<3) return null;
-  if(!looksLikeTS(parts[0])) return null;         // 參數行直接跳過
-  var ts=parseTS(parts[0]);
-  var price=parseFloat(String(parts[1]).replace(/,/g,'')); if(isNaN(price)) return null;
-  var act=normAct(parts[2]);
-  var ok={'新買':1,'新賣':1,'平買':1,'平賣':1,'強制平倉':1,'平倉':1}; if(!ok[act]) return null;
-  return {ts:ts, price:price, act:act};
-}
+// ===== 解析 TXT =====
+function parseText(raw) {
+  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+  if (lines.length === 0) return { trades: [], seqs: {}, tsArr: [] };
 
-/* ===== 主流程 ===== */
-function run(raw){
-  try{
-    hideErr();
-    var rows=(raw||'').replace(/^\uFEFF/,'').trim().split(/\r?\n/).filter(Boolean);
-    if(!rows.length) return showErr('空檔案');
+  // 第一行若只有數字與小數點與空格 -> 視為參數（此頁面僅忽略，不展示）
+  let startIdx = 0;
+  if (/^[\d.\s]+$/.test(lines[0])) startIdx = 1;
 
-    if(!parseLine(rows[0])) rows.shift();  // 第一行為參數 → 略過
+  const q = [];
+  const trades = [];
+  const tsArr = [], T=[], L=[], S=[], P=[];
+  let cum=0, cumL=0, cumS=0, cumSlip=0;
 
-    var q=[],tr=[],tsArr=[],tot=[],lon=[],sho=[],sli=[];
-    var cum=0,cumL=0,cumS=0,cumSlip=0;
+  for (let i=startIdx;i<lines.length;i++){
+    const parts = lines[i].trim().split(/\s+/);
+    if (parts.length < 3) continue;
+    const tsRaw = normalizeTS(parts[0]); // 取到 YYYYMMDDHHMM（12碼）
+    const price = +parts[1];
+    const act = parts[2];
 
-    for(var i=0;i<rows.length;i++){
-      var t=parseLine(rows[i]); if(!t) continue;
-
-      if(ENTRY.indexOf(t.act)>=0){
-        q.push({side:t.act==='新買'?'L':'S', pIn:t.price, tsIn:t.ts});
-        continue;
-      }
-      var qi=-1;
-      for(var j=0;j<q.length;j++){
-        var o=q[j];
-        if((o.side==='L' && EXIT_L.indexOf(t.act)>=0) ||
-           (o.side==='S' && EXIT_S.indexOf(t.act)>=0)){ qi=j; break; }
-      }
-      if(qi===-1) continue;
-
-      var pos=q.splice(qi,1)[0];
-      var pts= pos.side==='L' ? (t.price-pos.pIn) : (pos.pIn-t.price);
-      var fee=FEE*2, tax=Math.round(t.price*MULT*TAX);
-      var gain=pts*MULT - fee - tax, gainSlip=gain - SLIP*MULT;
-
-      cum+=gain; cumSlip+=gainSlip; if(pos.side==='L') cumL+=gain; else cumS+=gain;
-      tr.push({pos:pos, tsOut:t.ts, priceOut:t.price, pts:pts, gain:gain, gainSlip:gainSlip, fee:fee, tax:tax});
-
-      tsArr.push(t.ts); tot.push(cum); lon.push(cumL); sho.push(cumS); sli.push(cumSlip);
+    if (ENTRY.includes(act)) {
+      q.push({ side: act === '新買' ? 'L' : 'S', pIn: price, tsIn: tsRaw });
+      continue;
     }
+    const qi = q.findIndex(o => (o.side==='L' && EXIT_L.includes(act)) || (o.side==='S' && EXIT_S.includes(act)));
+    if (qi === -1) continue;
+    const pos = q.splice(qi,1)[0];
 
-    if(!tr.length) return showErr('沒有成功配對的交易');
+    const pts = pos.side==='L' ? price-pos.pIn : pos.pIn-price;
+    const fee = FEE*2, tax = Math.round(price * MULT * TAX);
+    const gain = pts * MULT - fee - tax;
+    const gainSlip = gain - SLIP * MULT;
 
-    drawChart(tsArr,tot,lon,sho,sli);
-    renderKPI(tr,{tot:tot,lon:lon,sho:sho,sli:sli});
-    renderTrades(tr);
-  }catch(err){ showErr('處理資料錯誤：'+err.message); }
-}
+    cum += gain; cumSlip += gainSlip;
+    if (pos.side==='L') cumL += gain; else cumS += gain;
 
-/* ===== KPI ===== */
-var KPI_DEF=[
-  ['交易數','n'],['勝率','winRate'],['敗率','lossRate'],
-  ['正點數','posPts'],['負點數','negPts'],['總點數','sumPts'],
-  ['累積獲利','sumGain'],['滑價累計獲利','sumGainSlip'],
-  ['單日最大獲利','maxDay'],['單日最大虧損','minDay'],
-  ['區間最大獲利','maxRunUp'],['區間最大回撤','maxDrawdown'],
-  ['Profit Factor','pf'],['平均獲利','avgW'],['平均虧損','avgL'],
-  ['盈虧比','rr'],['期望值(每筆)','exp'],
-  ['最大連勝','maxW'],['最大連敗','maxL']
-];
-function renderKPI(tr,seq){
-  function sum(a){return a.reduce(function(x,y){return x+y;},0);}
-  function pct(x){return (x*100).toFixed(1)+'%';}
-  function byDay(list){var m={};list.forEach(function(t){var d=(t.tsOut||'').slice(0,8);m[d]=(m[d]||0)+(t.gain||0)});return Object.values(m);}
-  function up(s){if(!s.length)return 0;var m=s[0],u=0;s.forEach(function(v){if(v<m)m=v;if(v-m>u)u=v-m});return u;}
-  function dn(s){if(!s.length)return 0;var p=s[0],d=0;s.forEach(function(v){if(v>p)p=v;if(v-p<d)d=v-p});return d;}
-  function streak(list){var cw=0,cl=0,mw=0,ml=0;list.forEach(function(t){if(t.gain>0){cw++;cl=0;mw=Math.max(mw,cw)}else if(t.gain<0){cl++;cw=0;ml=Math.max(ml,cl)}});return{mw:mw,ml:ml};}
-  var L=tr.filter(function(t){return t.pos.side==='L';});
-  var S=tr.filter(function(t){return t.pos.side==='S';});
-  function make(list,seqArr){
-    if(!list.length)return{n:0,winRate:'0.0%',lossRate:'0.0%',posPts:0,negPts:0,sumPts:0,sumGain:0,sumGainSlip:0,maxDay:0,minDay:0,maxRunUp:0,maxDrawdown:0,pf:'—',avgW:0,avgL:0,rr:'—',exp:0,maxW:0,maxL:0};
-    var win=list.filter(function(t){return t.gain>0;}),loss=list.filter(function(t){return t.gain<0;});
-    var winAmt=sum(win.map(function(t){return t.gain;})),lossAmt=-sum(loss.map(function(t){return t.gain;}));
-    var pf=lossAmt===0?(winAmt>0?'∞':'—'):(winAmt/lossAmt).toFixed(2);
-    var avgW=win.length?winAmt/win.length:0, avgL=loss.length?-(lossAmt/loss.length):0, rr=avgL===0?'—':Math.abs(avgW/avgL).toFixed(2);
-    var st=streak(list);
-    return{
-      n:list.length, winRate:pct(win.length/list.length), lossRate:pct(loss.length/list.length),
-      posPts:sum(win.map(function(t){return t.pts;})), negPts:sum(loss.map(function(t){return t.pts;})), sumPts:sum(list.map(function(t){return t.pts;})),
-      sumGain:sum(list.map(function(t){return t.gain;})), sumGainSlip:sum(list.map(function(t){return t.gainSlip;})),
-      maxDay:Math.max.apply(null,byDay(list)), minDay:Math.min.apply(null,byDay(list)),
-      maxRunUp:up(seqArr.tot), maxDrawdown:dn(seqArr.tot),
-      pf:pf, avgW:avgW, avgL:avgL, rr:rr, exp:(winAmt-lossAmt)/list.length, maxW:st.mw, maxL:st.ml
-    };
+    trades.push({ pos, tsOut: tsRaw, priceOut: price, pts, gain, gainSlip });
+    tsArr.push(tsRaw);
+    T.push(cum); L.push(cumL); S.push(cumS); P.push(cumSlip);
   }
-  var data={'全部':make(tr,seq),'多單':make(L,{tot:seq.lon}),'空單':make(S,{tot:seq.sho})};
-  var html='';
-  ['全部','多單','空單'].forEach(function(g){
-    html+='<div class="kpi-block"><div class="kpi-title">'+g+'</div><div class="kpi-line">';
-    KPI_DEF.forEach(function(p){
-      var lab=p[0], key=p[1], v=data[g][key];
-      html+='<span class="kpi-item"><span class="kpi-key">'+lab+'</span>：<span class="kpi-val">'+fmt(v)+'</span></span>';
+
+  return { trades, tsArr, seqs: { tot:T, lon:L, sho:S, sli:P } };
+}
+
+// ===== 視覺化 =====
+function renderTable(list){
+  const body = tbl.querySelector('tbody'); body.innerHTML='';
+  list.forEach((t,i)=>{
+    body.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td rowspan="2">${i+1}</td>
+        <td>${fmtTs(t.pos.tsIn)}</td><td>${t.pos.pIn}</td><td>${t.pos.side==='L'?'新買':'新賣'}</td>
+        <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
+      </tr>
+      <tr>
+        <td>${fmtTs(t.tsOut)}</td><td>${t.priceOut}</td><td>${t.pos.side==='L'?'平賣':'平買'}</td>
+        <td>${fmt(t.pts)}</td><td>${fmt(FEE*2)}</td><td>${fmt(Math.round(t.priceOut*MULT*TAX))}</td>
+        <td>${fmt(t.gain)}</td><td>${fmt(sumUpTo(list,i,'gain'))}</td>
+        <td>${fmt(t.gainSlip)}</td><td>${fmt(sumUpTo(list,i,'gainSlip'))}</td>
+      </tr>
+    `);
+  });
+}
+
+function renderStats(tr, seq) {
+  const statBox = document.getElementById('stats');
+  const sum = a=>a.reduce((x,y)=>x+y,0);
+  const pct = x=>(x*100).toFixed(1)+'%';
+  const byDay = list=>{
+    const m={}; list.forEach(t=>{ const d=t.tsOut.slice(0,8); m[d]=(m[d]||0)+t.gain;});
+    return Object.values(m);
+  };
+  const drawUp = s=>{ let mn=s[0],up=0; s.forEach(v=>{ mn=Math.min(mn,v); up=Math.max(up,v-mn);}); return up; };
+  const drawDn = s=>{ let pk=s[0],dn=0; s.forEach(v=>{ pk=Math.max(pk,v); dn=Math.min(dn,v-pk);}); return dn; };
+
+  const longs=tr.filter(t=>t.pos.side==='L');
+  const shorts=tr.filter(t=>t.pos.side==='S');
+
+  const make=(list, cumSeq)=> {
+    const win=list.filter(t=>t.gain>0), loss=list.filter(t=>t.gain<0);
+    return {
+      '交易數':list.length,
+      '勝率':pct(win.length/(list.length||1)),
+      '敗率':pct(loss.length/(list.length||1)),
+      '正點數':sum(win.map(t=>t.pts)),
+      '負點數':sum(loss.map(t=>t.pts)),
+      '總點數':sum(list.map(t=>t.pts)),
+      '累積獲利':sum(list.map(t=>t.gain)),
+      '滑價累計獲利':sum(list.map(t=>t.gainSlip)),
+      '單日最大獲利':Math.max(...byDay(list),0),
+      '單日最大虧損':Math.min(...byDay(list),0),
+      '區間最大獲利':drawUp(cumSeq),
+      '區間最大回撤':drawDn(cumSeq)
+    };
+  };
+
+  const stats={'全部':make(tr,seq.tot),'多單':make(longs,seq.lon),'空單':make(shorts,seq.sho)};
+  let html='';
+  Object.entries(stats).forEach(([title,obj])=>{
+    html+=`<section><h3>${title}</h3><div class="stat-grid">`;
+    Object.entries(obj).forEach(([k,v])=>{
+      html+=`<div class="stat-item"><span class="stat-key">${k}</span>：<span class="stat-val">${fmt(v)}</span></div>`;
     });
-    html+='</div></div>';
+    html+='</div></section>';
   });
-  kpiBlocks.innerHTML=html;
+  statBox.innerHTML=html;
 }
 
-/* ===== 交易表 ===== */
-function renderTrades(list){
-  var body=tbl.querySelector('tbody'); body.innerHTML='';
-  var cg=0,cs=0;
-  list.forEach(function(t,i){
-    cg+=t.gain; cs+=t.gainSlip;
-    var dir=t.pos.side==='L'?'多':'空';
-    body.insertAdjacentHTML('beforeend',
-      '<tr>'+
-      '<td>'+(i+1)+'</td>'+
-      '<td>'+fmtTs(t.pos.tsIn)+'</td><td>'+fmt(t.pos.pIn)+'</td>'+
-      '<td>'+fmtTs(t.tsOut)+'</td><td>'+fmt(t.priceOut)+'</td>'+
-      '<td>'+dir+'</td><td>'+fmt(t.pts)+'</td>'+
-      '<td>'+fmt(t.fee)+'</td><td>'+fmt(t.tax)+'</td>'+
-      '<td>'+fmt(t.gain)+'</td><td>'+fmt(cg)+'</td>'+
-      '<td>'+fmt(t.gainSlip)+'</td><td>'+fmt(cs)+'</td>'+
-      '</tr>');
+function drawChart(tsArr, T, L, S, P){
+  if (chart) chart.destroy();
+  if (tsArr.length===0){
+    chart = new Chart(cvs,{type:'line',data:{labels:[],datasets:[]}}); return;
+  }
+  const ym2Date=ym=>new Date(+ym.slice(0,4), +ym.slice(4,6)-1);
+  const addM=(d,n)=>new Date(d.getFullYear(), d.getMonth()+n);
+  const start=addM(ym2Date(tsArr[0].slice(0,6)),-1);
+  const months=[]; for(let d=start; months.length<26; d=addM(d,1))
+    months.push(`${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}`);
+  const mIdx={}; months.forEach((m,i)=>mIdx[m.replace('/','')]=i);
+
+  const daysInMonth=(y,m)=>new Date(y,m,0).getDate();
+  const X = tsArr.map(ts=>{
+    const y=+ts.slice(0,4), m=+ts.slice(4,6), d=+ts.slice(6,8), hh=+ts.slice(8,10), mm=+ts.slice(10,12);
+    return mIdx[ts.slice(0,6)] + (d-1 + (hh+mm/60)/24)/daysInMonth(y,m);
+  });
+
+  const maxI=T.indexOf(Math.max(...T));
+  const minI=T.indexOf(Math.min(...T));
+
+  const stripe={id:'stripe',beforeDraw(c){const{ctx,chartArea:{left,right,top,bottom}}=c,w=(right-left)/26;
+    ctx.save();months.forEach((_,i)=>{ctx.fillStyle=i%2?'rgba(0,0,0,.05)':'transparent'; ctx.fillRect(left+i*w,top,w,bottom-top);}); ctx.restore();}};
+  const mmLabel={id:'mmLabel',afterDraw(c){const{ctx,chartArea:{left,right,bottom}}=c,w=(right-left)/26;
+    ctx.save();ctx.font='11px sans-serif';ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#555';
+    months.forEach((m,i)=>ctx.fillText(m,left+w*(i+.5),bottom+8));ctx.restore();}};
+
+  const mkLine=(d,col)=>({data:d,stepped:true,borderColor:col,borderWidth:2,pointRadius:3,pointBackgroundColor:col,pointBorderColor:col});
+  const mkLast=(d,col)=>({data:d.map((v,i)=>i===d.length-1?v:null),showLine:false,pointRadius:5,pointBackgroundColor:col,pointBorderColor:col,
+    datalabels:{display:true,anchor:'center',align:'right',offset:8,formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
+  const mkMark=(d,i,col)=>({data:d.map((v,j)=>j===i?v:null),showLine:false,pointRadius:5,pointBackgroundColor:col,pointBorderColor:col,
+    datalabels:{display:true,anchor:i===maxI?'end':'start',align:i===maxI?'top':'bottom',offset:8,formatter:v=>v?.toLocaleString('zh-TW')??'',color:'#000',clip:false,font:{size:10}}});
+
+  chart = new Chart(cvs,{
+    type:'line',
+    data:{ labels:X,
+      datasets:[
+        mkLine(T,'#fbc02d'), mkLine(L,'#d32f2f'), mkLine(S,'#2e7d32'), mkLine(P,'#212121'),
+        mkLast(T,'#fbc02d'), mkLast(L,'#d32f2f'), mkLast(S,'#2e7d32'), mkLast(P,'#212121'),
+        mkMark(T,maxI,'#d32f2f'), mkMark(T,minI,'#2e7d32')
+      ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      layout:{padding:{bottom:42,right:60}},
+      plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' '+c.parsed.y.toLocaleString('zh-TW')}}, datalabels:{display:false} },
+      scales:{ x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}}, y:{ticks:{callback:v=>v.toLocaleString('zh-TW')}} }
+    },
+    plugins:[stripe,mmLabel,ChartDataLabels]
   });
 }
 
-/* ===== 圖表 (黃=總、綠=多、紅=空、黑=滑價) ===== */
-function drawChart(tsArr,T,L,S,P){
-  if(chart) chart.destroy();
-  function ym2Date(ym){return new Date(+ym.slice(0,4),+ym.slice(4,6)-1);}
-  function addM(d,n){return new Date(d.getFullYear(),d.getMonth()+n);}
-  var start=addM(ym2Date(tsArr[0].slice(0,6)),-1),months=[],d=start;
-  while(months.length<26){months.push(d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2));d=addM(d,1);}
-  var mIdx={}; months.forEach(function(m,i){mIdx[m.replace('/','')]=i;});
-  function dim(y,m){return new Date(y,m,0).getDate();}
-  var X=tsArr.map(function(ts){var y=+ts.slice(0,4),m=+ts.slice(4,6),dd=+ts.slice(6,8),hh=+ts.slice(8,10)||0,mm=+ts.slice(10,12)||0;return mIdx[ts.slice(0,6)]+(dd-1+(hh+mm/60)/24)/dim(y,m);});
-  function mk(d,c){return{data:d,stepped:true,borderColor:c,borderWidth:2,pointRadius:3};}
-  chart=new Chart(cvs,{type:'line',data:{labels:X,datasets:[mk(T,'#f6b300'),mk(L,'#2e7d32'),mk(S,'#d32f2f'),mk(P,'#000')]},
-    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return' '+c.parsed.y.toLocaleString('zh-TW');}}}},
-    scales:{x:{type:'linear',min:0,max:25.999,grid:{display:false},ticks:{display:false}},y:{ticks:{callback:function(v){return v.toLocaleString('zh-TW');}}}}});
+// ===== 小工具 =====
+function readAsText(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result); r.onerror=()=>rej(r.error);
+    r.readAsText(file); // 預設 UTF-8；你的檔若是 Big5 也多半能讀，若有問題再補 fallback
+  });
 }
-
-/* ===== 雜項 ===== */
-function fmt(n){ if(typeof n==='number'&&isFinite(n)) return n.toLocaleString('zh-TW',{maximumFractionDigits:0}); if(typeof n==='string') return n; return '—'; }
-function fmtTs(s){ var y=s.slice(0,4),m=s.slice(4,6),d=s.slice(6,8),hh=s.slice(8,10)||'00',mm=s.slice(10,12)||'00'; return y+'/'+m+'/'+d+' '+hh+':'+mm; }
-function flash(el){ if(!el) return; el.classList.add('flash'); setTimeout(function(){el.classList.remove('flash');},600); }
-function showErr(m){ if(errBox){errBox.textContent=m; errBox.style.display='inline-block';} else {alert(m);} }
-function hideErr(){ if(errBox){errBox.style.display='none'; errBox.textContent='';} }
+function normalizeTS(s){
+  // 可能是 20230907124000.000000 或 20230907124000 或 202309071240
+  const digits = (s.split('.')[0]||'').trim();
+  return digits.length>=12 ? digits.slice(0,12) : digits.padEnd(12,'0');
+}
+const fmt = n => typeof n==='number'? n.toLocaleString('zh-TW',{maximumFractionDigits:2}) : n;
+const fmtTs = s => `${s.slice(0,4)}/${s.slice(4,6)}/${s.slice(6,8)} ${s.slice(8,10)}:${s.slice(10,12)}`;
+function sumUpTo(arr, idx, key){return arr.slice(0, idx + 1).reduce((a,b)=>a + b[key], 0);}
+function flash(el){el.classList.add('flash'); setTimeout(()=>el.classList.remove('flash'),600);}
