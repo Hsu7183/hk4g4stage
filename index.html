@@ -2,38 +2,59 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <title>許夏睿、張宸、何冠緯等三劍客團隊台指期策略分析</title>
+  <title>三劍客台指期策略分析｜入口</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
+  <style>
+    /* 入口頁專用的小樣式（不動你原本的 style.css 也可以） */
+    .container {max-width: 1200px; margin: 2rem auto; padding: 0 1rem;}
+    .cards {display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 1rem;}
+    .cardx {
+      background: var(--card); border: 1px solid var(--border); border-radius: .75rem;
+      padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: .6rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,.03);
+    }
+    .cardx h2 {margin: .2rem 0 .4rem; font-size: 1.2rem;}
+    .cardx p {margin: 0; color: #555; line-height: 1.5;}
+    .cardx .actions {margin-top: .6rem; display: flex; gap: .6rem; flex-wrap: wrap;}
+    .muted {font-size: .85rem; color: #777;}
+    @media (max-width: 720px){ .cards{grid-template-columns: 1fr;} }
+  </style>
 </head>
 <body>
-  <header>
-    <h1>許夏睿、張宸、何冠緯等三劍客團隊台指期策略分析</h1>
-    <div class="btn-group">
-      <button id="btn-clip" class="btn primary">貼上內容</button>
-      <label class="btn primary">選擇檔案
-        <input type="file" id="fileInput" accept=".txt,.TF" hidden />
-      </label>
-    </div>
+  <header class="container" style="padding-top:1.2rem">
+    <h1 style="margin:0 0 .4rem">許夏睿、張宸、何冠緯等三劍客團隊台指期策略分析｜入口</h1>
+    <div class="muted">請選擇要使用的模式：</div>
   </header>
 
-  <div class="chart-wrap">
-    <canvas id="equityChart"></canvas>
-  </div>
+  <main class="container">
+    <div class="cards">
+      <!-- 單檔分析 -->
+      <section class="cardx">
+        <h2>單檔分析</h2>
+        <p>貼上或匯入 <code>1</code> 個 TXT，顯示收益曲線、交易紀錄與 KPI 指標。</p>
+        <ul class="muted" style="margin:.2rem 0 0; padding-left:1.2rem;">
+          <li>自動辨識第一行參數（若有）</li>
+          <li>支援時間/價格含小數；時間只取到分鐘顯示</li>
+        </ul>
+        <div class="actions">
+          <a class="btn primary" href="single.html">進入單檔版</a>
+        </div>
+      </section>
 
-  <h2 class="sub">交易紀錄</h2>
-  <table id="tbl" hidden>
-    <thead>
-      <tr>
-        <th>筆數</th><th>時間</th><th>價格</th><th>類型</th><th>點數</th>
-        <th>手續費</th><th>期交稅</th><th>獲利</th><th>累積獲利</th>
-        <th>滑價獲利</th><th>累積滑價獲利</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <script type="module" src="single.js"></script>
+      <!-- 批量分析 -->
+      <section class="cardx">
+        <h2>批量分析</h2>
+        <p>一次匯入多個 TXT，彙整各檔 KPI；可排序、點選切換至第一列圖表與交易表。</p>
+        <ul class="muted" style="margin:.2rem 0 0; padding-left:1.2rem;">
+          <li>表頭點擊可升降序排序</li>
+          <li>排序後自動切換為第一筆並重畫左上圖</li>
+        </ul>
+        <div class="actions">
+          <a class="btn primary" href="multi.html">進入批量版</a>
+        </div>
+      </section>
+    </div>
+  </main>
 </body>
 </html>
